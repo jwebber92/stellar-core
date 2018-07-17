@@ -159,7 +159,7 @@ class TransactionFrame
                                       AccountID const& accountID);
 
     // transaction history
-    void storeTransaction(LedgerManager& ledgerManager, TransactionMeta& tm,
+    void storeTransaction(Application& app, LedgerManager& ledgerManager, TransactionMeta& tm,
                           int txindex, TransactionResultSet& resultSet) const;
 
     // fee history

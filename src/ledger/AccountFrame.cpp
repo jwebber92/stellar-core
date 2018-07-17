@@ -11,6 +11,7 @@
 #include "database/Database.h"
 #include "ledger/LedgerManager.h"
 #include "ledger/LedgerRange.h"
+#include "ledger/BulkWriterManager.h"
 #include "lib/util/format.h"
 #include "util/basen.h"
 #include "util/types.h"
@@ -76,6 +77,13 @@ AccountFrame::AccountFrame(AccountFrame const& from) : AccountFrame(from.mEntry)
 AccountFrame::AccountFrame(AccountID const& id) : AccountFrame()
 {
     mAccountEntry.accountID = id;
+}
+
+void
+AccountFrame::setSeqNum(SequenceNumber seq)
+{
+    // Do not invalidate cache
+    mAccountEntry.seqNum = seq;
 }
 
 AccountFrame::pointer
@@ -618,7 +626,14 @@ AccountFrame::applySigners(Database& db, bool insert)
 void
 AccountFrame::storeChange(LedgerDelta& delta, Database& db)
 {
-    storeUpdate(delta, db, false);
+    touch(delta);
+    flushCachedEntry(db);
+    putCachedEntry(db);
+    delta.modEntry(*this);
+    if (mUpdateSigners)
+    {
+        applySigners(db, false);
+    }
 }
 
 void
