@@ -22,6 +22,7 @@
 #include "util/basen.h"
 #include "xdrpp/marshal.h"
 #include <string>
+#include "ledger/BulkWriterManager.h"
 
 #include "medida/meter.h"
 #include "medida/metrics_registry.h"
@@ -566,7 +567,8 @@ TransactionFrame::toStellarMessage() const
 }
 
 void
-TransactionFrame::storeTransaction(LedgerManager& ledgerManager,
+TransactionFrame::storeTransaction(Application& app,
+                                   LedgerManager& ledgerManager,
                                    TransactionMeta& tm, int txindex,
                                    TransactionResultSet& resultSet) const
 {
@@ -588,29 +590,15 @@ TransactionFrame::storeTransaction(LedgerManager& ledgerManager,
 
     string txIDString(binToHex(getContentsHash()));
 
-    auto& db = ledgerManager.getDatabase();
-    auto prep = db.getPreparedStatement(
-        "INSERT INTO txhistory "
-        "( txid, ledgerseq, txindex,  txbody, txresult, txmeta) VALUES "
-        "(:id,  :seq,      :txindex, :txb,   :txres,   :meta)");
-
-    auto& st = prep.statement();
-    st.exchange(soci::use(txIDString));
-    st.exchange(soci::use(ledgerManager.getCurrentLedgerHeader().ledgerSeq));
-    st.exchange(soci::use(txindex));
-    st.exchange(soci::use(txBody));
-    st.exchange(soci::use(txResult));
-    st.exchange(soci::use(meta));
-    st.define_and_bind();
-    {
-        auto timer = db.getInsertTimer("txhistory");
-        st.execute(true);
-    }
-
-    if (st.get_affected_rows() != 1)
-    {
-        throw std::runtime_error("Could not update data in SQL");
-    }
+    auto& txHistory = app.getBulkWriterManager().txHistory;
+    txHistory.add(
+        txIDString,
+        ledgerManager.getCurrentLedgerHeader().ledgerSeq,
+        txindex,
+        txBody,
+        txResult,
+        meta
+    );
 }
 
 void

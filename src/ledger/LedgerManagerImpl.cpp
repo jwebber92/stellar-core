@@ -10,6 +10,7 @@
 #include "crypto/Hex.h"
 #include "crypto/KeyUtils.h"
 #include "crypto/SHA.h"
+#include "lib/util/basen.h"
 #include "crypto/SecretKey.h"
 #include "database/Database.h"
 #include "herder/Herder.h"
@@ -28,7 +29,7 @@
 #include "util/Logging.h"
 #include "util/format.h"
 #include "util/make_unique.h"
-
+#include "ledger/BulkWriterManager.h"
 #include "medida/counter.h"
 #include "medida/meter.h"
 #include "medida/metrics_registry.h"
@@ -737,7 +738,7 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
     // was sorted by hash; we reorder it so that transactions are
     // sorted such that sequence numbers are respected
     vector<TransactionFramePtr> txs = ledgerData.getTxSet()->sortForApply();
-
+    
     // first, charge fees
     processFeesSeqNums(txs, ledgerDelta);
 
@@ -746,6 +747,75 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
 
     applyTransactions(txs, ledgerDelta, txResultSet);
 
+    try
+    {
+        // Bulk insert txhistory
+        // TODO best place here ?
+        mApp.getBulkWriterManager().commit(getDatabase());
+    }
+    catch (soci::soci_error& error)
+    {
+        CLOG(FATAL, "Ledger") << "sql bulk insert/update failed " << error.what();
+        throw;
+    }
+    
+    const auto& entries = ledgerDelta.getLiveEntries();
+
+    if(!entries.empty()){
+        auto& session = mApp.getDatabase().getSession();
+        std::ostringstream oss;
+        oss << "UPDATE accounts ";
+        oss << "SET ";
+        oss << "balance = v.balance";
+        oss << ", seqnum = v.seqnum";
+        oss << ", numsubentries = v.numsubentries";
+        // TODO add inflationdest and homedomain
+        //oss << ", inflationdest = v.inflationdest";
+        //oss << ", homedomain = v.homedomain";
+        oss << ", thresholds = v.thresholds";
+        oss << ", flags = v.flags";   
+        oss << ", lastmodified = v.lastmodified";   
+        oss << " FROM (VALUES";
+        
+        for(int i = 0; i < entries.size(); i++){
+            const auto& entry = entries[i]; 
+            if(entry.data.type() == ACCOUNT){
+
+                auto& account = entry.data.account();
+                const string accountid = KeyUtils::toStrKey(account.accountID);
+                if(!accountid.empty()){
+                    oss << "(";
+                    oss << "'" << KeyUtils::toStrKey(account.accountID) << "'";
+                    oss << "," << account.balance;
+                    oss << "," << account.seqNum;
+                    oss << "," << account.numSubEntries;
+                    /*
+                    if(account.inflationDest){
+                        oss << ",'" << KeyUtils::toStrKey(*account.inflationDest) << "'";
+                    } else {
+                        oss << ",''";
+                    }*/
+                    //oss << ",'" << (account.inflationDest ? KeyUtils::toStrKey(*account.inflationDest): "") << "'";
+                    //oss << ",'" << account.homeDomain << "'";
+                    string thresholds(bn::encode_b64(account.thresholds));
+                    oss << ",'" << thresholds << "'";
+                    oss << "," << account.flags;
+                    oss << "," << ledgerData.getLedgerSeq();
+                    oss << ")";
+                    if(i + 1 < entries.size()){
+                        oss << ","; 
+                    }
+                }
+            }
+        }
+
+        oss << ") AS v (";
+        oss << "accountid, ";
+        oss << "balance, seqnum, numsubentries, thresholds, flags, lastmodified) ";
+        oss << "WHERE accounts.accountid = v.accountid;";
+
+        session << oss.str();
+    }
     ledgerDelta.getHeader().txSetResultHash =
         sha256(xdr::xdr_to_opaque(txResultSet));
 
@@ -908,7 +978,8 @@ LedgerManagerImpl::processFeesSeqNums(std::vector<TransactionFramePtr>& txs,
         {
             LedgerDelta thisTxDelta(delta);
             tx->processFeeSeqNum(thisTxDelta, *this);
-            tx->storeTransactionFee(*this, thisTxDelta.getChanges(), ++index);
+            // TODO FH
+            //tx->storeTransactionFee(*this, thisTxDelta.getChanges(), ++index);
             thisTxDelta.commit();
         }
         sqlTx.commit();
@@ -966,7 +1037,8 @@ LedgerManagerImpl::applyTransactions(std::vector<TransactionFramePtr>& txs,
             CLOG(ERROR, "Ledger") << "Unknown exception during tx->apply";
             tx->getResult().result.code(txINTERNAL_ERROR);
         }
-        tx->storeTransaction(*this, tm, ++index, txResultSet);
+        tx->storeTransaction(mApp, *this, tm, ++index, txResultSet);
+        //TODO
     }
 }
 

@@ -1,5 +1,4 @@
 #pragma once
-
 // Copyright 2014 Stellar Development Foundation and contributors. Licensed
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
@@ -8,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <unordered_map>
+#include "crypto/KeyUtils.h"
 
 namespace soci
 {
@@ -86,11 +86,8 @@ class AccountFrame : public EntryFrame
     uint32_t getLowThreshold() const;
 
     void
-    setSeqNum(SequenceNumber seq)
-    {
-        clearCached();
-        mAccountEntry.seqNum = seq;
-    }
+    setSeqNum(SequenceNumber seq);
+
     SequenceNumber
     getSeqNum() const
     {
@@ -106,7 +103,7 @@ class AccountFrame : public EntryFrame
     AccountEntry&
     getAccount()
     {
-        clearCached();
+        //clearCached();
         return mAccountEntry;
     }
 

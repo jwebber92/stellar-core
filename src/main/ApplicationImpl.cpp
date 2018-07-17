@@ -42,6 +42,7 @@
 #include "scp/QuorumSetUtils.h"
 #include "simulation/LoadGenerator.h"
 #include "util/StatusManager.h"
+#include "ledger/BulkWriterManager.h"
 #include "work/WorkManager.h"
 
 #include "util/Logging.h"
@@ -120,7 +121,7 @@ ApplicationImpl::initialize()
     mWorkManager = WorkManager::create(*this);
     mBanManager = BanManager::create(*this);
     mStatusManager = make_unique<StatusManager>();
-
+    mBulkWriterManager = make_unique<BulkWriterManager>();
     BucketListIsConsistentWithDatabase::registerInvariant(*this);
     AccountSubEntriesCountIsValid::registerInvariant(*this);
     CacheIsConsistentWithDatabase::registerInvariant(*this);
@@ -709,6 +710,12 @@ StatusManager&
 ApplicationImpl::getStatusManager()
 {
     return *mStatusManager;
+}
+
+BulkWriterManager&
+ApplicationImpl::getBulkWriterManager()
+{
+    return *mBulkWriterManager;
 }
 
 asio::io_service&

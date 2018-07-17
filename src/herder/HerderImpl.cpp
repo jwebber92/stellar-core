@@ -891,7 +891,8 @@ HerderImpl::dumpQuorumInfo(Json::Value& ret, NodeID const& id, bool summary,
 void
 HerderImpl::persistSCPState(uint64 slot)
 {
-    if (slot < mLastSlotSaved)
+    //TODO FH: was <, it is called twice but second call leads to different scp data
+    if (slot <= mLastSlotSaved)
     {
         return;
     }
