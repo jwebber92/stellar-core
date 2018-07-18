@@ -29,7 +29,7 @@ if test -z "${WFLAGS+set}"; then
    WFLAGS="$WFLAGS -Werror=unused-result"
 fi
 
-test "${CFLAGS+set}" || CFLAGS="-g -O2"
+test "${CFLAGS+set}" || CFLAGS="-g -O2 -m64"
 test "${CXXFLAGS+set}" || CXXFLAGS="$CFLAGS"
 
 AC_PROG_CC([clang gcc cc])
