@@ -590,15 +590,9 @@ TransactionFrame::storeTransaction(Application& app,
 
     string txIDString(binToHex(getContentsHash()));
 
-    auto& txHistory = app.getBulkWriterManager().txHistory;
-    txHistory.add(
-        txIDString,
-        ledgerManager.getCurrentLedgerHeader().ledgerSeq,
-        txindex,
-        txBody,
-        txResult,
-        meta
-    );
+    TxHistoryRow row{txIDString, ledgerManager.getCurrentLedgerHeader().ledgerSeq, txindex, txBody, meta};
+    app.getBulkWriterManager().txHistory.rows.emplace_back(row);
+
 }
 
 void
