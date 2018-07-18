@@ -7,7 +7,7 @@
 
 /* define ED25519_SUFFIX to have it appended to the end of each public function */
 #define ED25519_CUSTOMRANDOM
-#define ED25519_FORCE_32BIT
+#define ED25519_64BIT
 #define ED25519_REFHASH
 
 #if !defined(ED25519_SUFFIX)

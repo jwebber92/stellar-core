@@ -17,8 +17,6 @@
 #include <sodium.h>
 #include <type_traits>
 
-#define ED25519_CUSTOMRANDOM
-#define ED25519_FORCE_32BIT
 #include "ed25519-donna/ed25519.h"
 
 namespace stellar
@@ -312,7 +310,6 @@ PubKeyUtils::verifySig(PublicKey const& key, Signature const& signature,
                                      key.ed25519().data()) == 0);
     #endif
 
-    std::cout << "verifySig " << ok << std::endl;
     std::lock_guard<std::mutex> guard(gVerifySigCacheMutex);
     gVerifySigCache.put(cacheKey, ok);
     return ok;
