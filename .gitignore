@@ -24,6 +24,9 @@
 *~
 *.swp
 
+*.xml
+*.iml
+
 .libs
 .deps
 .dirstamp
