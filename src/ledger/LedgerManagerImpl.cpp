@@ -776,14 +776,22 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
         oss << ", flags = v.flags";   
         oss << ", lastmodified = v.lastmodified";   
         oss << " FROM (VALUES";
-        
+        //std::cout << "#entries " << entries.size() << std::endl;
+        bool isFirst = true;
         for(int i = 0; i < entries.size(); i++){
             const auto& entry = entries[i]; 
             if(entry.data.type() == ACCOUNT){
 
                 auto& account = entry.data.account();
                 const string accountid = KeyUtils::toStrKey(account.accountID);
+                //std::cout << "accountid " << accountid << std::endl;
                 if(!accountid.empty()){
+                    
+                    if(!isFirst){
+                        oss << ","; 
+                    } else {
+                        isFirst = false;
+                    }
                     oss << "(";
                     oss << "'" << KeyUtils::toStrKey(account.accountID) << "'";
                     oss << "," << account.balance;
@@ -802,9 +810,6 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
                     oss << "," << account.flags;
                     oss << "," << ledgerData.getLedgerSeq();
                     oss << ")";
-                    if(i + 1 < entries.size()){
-                        oss << ","; 
-                    }
                 }
             }
         }
