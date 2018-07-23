@@ -121,8 +121,8 @@ ApplicationImpl::initialize()
     mCommandHandler = std::make_unique<CommandHandler>(*this);
     mWorkManager = WorkManager::create(*this);
     mBanManager = BanManager::create(*this);
-    mStatusManager = make_unique<StatusManager>();
-    mBulkWriterManager = make_unique<BulkWriterManager>();
+    mStatusManager = std::make_unique<StatusManager>();
+    mBulkWriterManager = std::make_unique<BulkWriterManager>();
     BucketListIsConsistentWithDatabase::registerInvariant(*this);
     AccountSubEntriesCountIsValid::registerInvariant(*this);
     CacheIsConsistentWithDatabase::registerInvariant(*this);
