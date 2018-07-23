@@ -42,7 +42,7 @@ using namespace std;
 using namespace txtest;
 
 // Units of load are is scheduled at 100ms intervals.
-const uint32_t LoadGenerator::STEP_MSECS = 100;
+const uint32_t LoadGenerator::STEP_MSECS = 1000;
 //
 const uint32_t LoadGenerator::TX_SUBMIT_MAX_TRIES = 1000;
 
@@ -151,7 +151,8 @@ void
 LoadGenerator::scheduleLoadGeneration(bool isCreate, uint32_t nAccounts,
                                       uint32_t offset, uint32_t nTxs,
                                       uint32_t txRate, uint32_t batchSize,
-                                      bool autoRate)
+                                      bool autoRate,
+                                      std::chrono::nanoseconds submitTimer)
 {
     if (!mLoadTimer)
     {
@@ -160,7 +161,7 @@ LoadGenerator::scheduleLoadGeneration(bool isCreate, uint32_t nAccounts,
 
     if (mApp.getState() == Application::APP_SYNCED_STATE)
     {
-        mLoadTimer->expires_from_now(std::chrono::milliseconds(STEP_MSECS));
+        mLoadTimer->expires_from_now(std::chrono::milliseconds(STEP_MSECS) - submitTimer);
         mLoadTimer->async_wait([this, nAccounts, offset, nTxs, txRate,
                                 batchSize, isCreate,
                                 autoRate](asio::error_code const& error) {
@@ -179,11 +180,11 @@ LoadGenerator::scheduleLoadGeneration(bool isCreate, uint32_t nAccounts,
         mLoadTimer->expires_from_now(std::chrono::seconds(10));
         mLoadTimer->async_wait([this, nAccounts, offset, nTxs, txRate,
                                 batchSize, isCreate,
-                                autoRate](asio::error_code const& error) {
+                                autoRate, submitTimer](asio::error_code const& error) {
             if (!error)
             {
                 this->scheduleLoadGeneration(isCreate, nAccounts, offset, nTxs,
-                                             txRate, batchSize, autoRate);
+                                             txRate, batchSize, autoRate, submitTimer);
             }
         });
     }
@@ -198,6 +199,7 @@ LoadGenerator::generateLoad(bool isCreate, uint32_t nAccounts, uint32_t offset,
                             uint32_t nTxs, uint32_t txRate, uint32_t batchSize,
                             bool autoRate)
 {
+    using namespace std::chrono;
     soci::transaction sqltx(mApp.getDatabase().getSession());
     mApp.getDatabase().setCurrentTransactionReadOnly();
     createRootAccount();
@@ -264,9 +266,11 @@ LoadGenerator::generateLoad(bool isCreate, uint32_t nAccounts, uint32_t offset,
     {
         logProgress(submit, isCreate, nAccounts, nTxs, batchSize, txRate);
     }
-
+    
+    auto submitSteps = std::chrono::duration_cast<milliseconds>(submit).count();
     scheduleLoadGeneration(isCreate, nAccounts, offset, nTxs, txRate, batchSize,
-                           autoRate);
+                           autoRate, milliseconds(submitSteps));
+    
 }
 
 uint32_t
@@ -381,7 +385,7 @@ LoadGenerator::inspectRate(uint32_t ledgerNum, uint32_t& txRate)
         double targetLatency = targetAge / 2.0;
         double actualLatency = ledgerCloseTimer.mean();
 
-        CLOG(INFO, "LoadGen")
+        CLOG(DEBUG, "LoadGen")
             << "Considering auto-tx adjustment, avg close time "
             << ((uint32_t)actualLatency) << "ms, avg ledger age "
             << ((uint32_t)actualAge) << "ms";
@@ -431,7 +435,8 @@ LoadGenerator::logProgress(std::chrono::nanoseconds submitTimer, bool isCreate,
                           << applyOp.one_minute_rate() << "op actual (1m EWMA)."
                           << " Pending: " << nAccounts << " accounts, " << nTxs
                           << " txs."
-                          << " ETA: " << etaHours << "h" << etaMins << "m";
+                          << " ETA: " << etaHours << "h" << etaMins << "m"
+                          << ", " << submitSteps << "ms submit.";
 
     CLOG(DEBUG, "LoadGen") << "Step timing: " << submitSteps << "ms submit.";
 

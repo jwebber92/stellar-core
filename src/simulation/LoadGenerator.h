@@ -52,7 +52,8 @@ class LoadGenerator
     // Schedule a callback to generateLoad() STEP_MSECS miliseconds from now.
     void scheduleLoadGeneration(bool isCreate, uint32_t nAccounts,
                                 uint32_t offset, uint32_t nTxs, uint32_t txRate,
-                                uint32_t batchSize, bool autoRate);
+                                uint32_t batchSize, bool autoRate,
+                                std::chrono::nanoseconds submitTimer);
 
     // Generate one "step" worth of load (assuming 1 step per STEP_MSECS) at a
     // given target number of accounts and txs, and a given target tx/s rate.
