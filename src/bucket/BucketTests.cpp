@@ -484,7 +484,6 @@ TEST_CASE("file-backed buckets", "[bucket][bucketbench]")
         for (auto& e : dead)
             e = deadGen(3);
         {
-            TIMED_SCOPE(timerObj2, "merge");
             b1 = Bucket::merge(
                 app->getBucketManager(), b1,
                 Bucket::fresh(app->getBucketManager(), live, dead));
@@ -1039,7 +1038,8 @@ TEST_CASE("checkdb succeeding", "[bucket][checkdb]")
 
     std::vector<stellar::LedgerKey> emptySet;
 
-    app->generateLoad(1000, 1000, 1000, false);
+    // Create accounts
+    app->generateLoad(true, 1000, 0, 0, 1000, 100, false);
     auto& m = app->getMetrics();
     while (m.NewMeter({"loadgen", "run", "complete"}, "run").count() == 0)
     {
@@ -1109,37 +1109,44 @@ TEST_CASE("bucket apply", "[bucket]")
     REQUIRE(count == 1);
 }
 
-#ifdef USE_POSTGRES
-TEST_CASE("bucket apply bench", "[bucketbench][hide]")
+TEST_CASE("bucket apply bench", "[bucketbench][!hide]")
 {
-    VirtualClock clock;
-    Config cfg(getTestConfig(0, Config::TESTDB_POSTGRESQL));
-    Application::pointer app = createTestApplication(clock, cfg);
-    app->start();
+    auto runtest = [](Config::TestDbMode mode) {
+        VirtualClock clock;
+        Config cfg(getTestConfig(0, mode));
+        Application::pointer app = createTestApplication(clock, cfg);
+        app->start();
 
-    std::vector<LedgerEntry> live(100000);
-    std::vector<LedgerKey> noDead;
+        std::vector<LedgerEntry> live(100000);
+        std::vector<LedgerKey> noDead;
 
-    for (auto& l : live)
-    {
-        l.data.type(ACCOUNT);
-        auto& a = l.data.account();
-        a = LedgerTestUtils::generateValidAccountEntry(5);
-    }
+        for (auto& l : live)
+        {
+            l.data.type(ACCOUNT);
+            auto& a = l.data.account();
+            a = LedgerTestUtils::generateValidAccountEntry(5);
+        }
 
-    std::shared_ptr<Bucket> birth =
-        Bucket::fresh(app->getBucketManager(), live, noDead);
+        std::shared_ptr<Bucket> birth =
+            Bucket::fresh(app->getBucketManager(), live, noDead);
 
-    auto& db = app->getDatabase();
-    auto& sess = db.getSession();
+        auto& db = app->getDatabase();
 
-    CLOG(INFO, "Bucket") << "Applying bucket with " << live.size()
-                         << " live entries";
-    {
-        TIMED_SCOPE(timerObj, "apply");
-        soci::transaction sqltx(sess);
+        CLOG(INFO, "Bucket")
+            << "Applying bucket with " << live.size() << " live entries";
+        // note: we do not wrap the `apply` call inside a transaction
+        // as bucket applicator commits to the database incrementally
         birth->apply(db);
-        sqltx.commit();
+    };
+
+    SECTION("sqlite")
+    {
+        runtest(Config::TESTDB_ON_DISK_SQLITE);
     }
-}
+#ifdef USE_POSTGRES
+    SECTION("postgresql")
+    {
+        runtest(Config::TESTDB_POSTGRESQL);
+    }
 #endif
+}

@@ -12,7 +12,6 @@
 #include "test/TestUtils.h"
 #include "util/Logging.h"
 #include "util/TmpDir.h"
-#include "util/make_unique.h"
 #include <cstdlib>
 #include <numeric>
 #include <time.h>
@@ -44,12 +43,15 @@ static std::vector<std::string> gTestMetrics;
 static std::vector<std::unique_ptr<Config>> gTestCfg[Config::TESTDB_MODES];
 static std::vector<TmpDir> gTestRoots;
 static bool gTestAllVersions{false};
+static std::vector<uint32> gVersionsToTest;
+static int gBaseInstance{0};
 
 bool force_sqlite = (std::getenv("STELLAR_FORCE_SQLITE") != nullptr);
 
 Config const&
 getTestConfig(int instanceNumber, Config::TestDbMode mode)
 {
+    instanceNumber += gBaseInstance;
     if (mode == Config::TESTDB_DEFAULT)
     {
         // by default, tests should be run with in memory SQLITE as it's faster
@@ -71,8 +73,9 @@ getTestConfig(int instanceNumber, Config::TestDbMode mode)
         std::string rootDir = gTestRoots.back().getName();
         rootDir += "/";
 
-        cfgs[instanceNumber] = stellar::make_unique<Config>();
+        cfgs[instanceNumber] = std::make_unique<Config>();
         Config& thisConfig = *cfgs[instanceNumber];
+        thisConfig.USE_CONFIG_FOR_GENESIS = true;
 
         std::ostringstream sstream;
 
@@ -80,12 +83,7 @@ getTestConfig(int instanceNumber, Config::TestDbMode mode)
         thisConfig.LOG_FILE_PATH = sstream.str();
         thisConfig.BUCKET_DIR_PATH = rootDir + "bucket";
 
-        thisConfig.INVARIANT_CHECKS = {"AccountSubEntriesCountIsValid",
-                                       "BucketListIsConsistentWithDatabase",
-                                       "CacheIsConsistentWithDatabase",
-                                       "ConservationOfLumens",
-                                       "LedgerEntryIsValid",
-                                       "MinimumAccountBalance"};
+        thisConfig.INVARIANT_CHECKS = {".*"};
 
         thisConfig.ALLOW_LOCALHOST_FOR_TESTING = true;
 
@@ -142,6 +140,8 @@ getTestConfig(int instanceNumber, Config::TestDbMode mode)
         }
         thisConfig.DATABASE = SecretValue{dbname.str()};
         thisConfig.REPORT_METRICS = gTestMetrics;
+        // disable maintenance
+        thisConfig.AUTOMATIC_MAINTENANCE_COUNT = 0;
     }
     return *cfgs[instanceNumber];
 }
@@ -151,36 +151,38 @@ test(int argc, char* const* argv, el::Level ll,
      std::vector<std::string> const& metrics)
 {
     gTestMetrics = metrics;
-    Config const& cfg = getTestConfig();
+
+    // Note: Have to setLogLevel twice here to ensure --list-test-names-only is
+    // not mixed with stellar-core logging.
     Logging::setFmt("<test>");
+    Logging::setLogLevel(ll, nullptr);
+    Config const& cfg = getTestConfig();
     Logging::setLoggingToFile(cfg.LOG_FILE_PATH);
     Logging::setLogLevel(ll, nullptr);
+
     LOG(INFO) << "Testing stellar-core " << STELLAR_CORE_VERSION;
     LOG(INFO) << "Logging to " << cfg.LOG_FILE_PATH;
 
     using namespace Catch;
     Session session{};
-    auto r =
-        session.applyCommandLine(argc, argv, Session::OnUnusedOptions::Ignore);
+
+    auto cli = session.cli();
+    cli |= clara::Opt(gTestAllVersions)["--all-versions"]("Test all versions");
+    cli |= clara::Opt(gVersionsToTest,
+                      "version")["--version"]("Test specific version(s)");
+    cli |= clara::Opt(gBaseInstance, "offset")["--base-instance"](
+        "Instance number offset so multiple instances of "
+        "stellar-core can run tests concurrently");
+    session.cli(cli);
+
+    auto r = session.applyCommandLine(argc, argv);
     if (r != 0)
         return r;
 
-    auto unusedTokens = session.unusedTokens();
-    using namespace Clara;
-
-    for (auto const& token : unusedTokens)
+    if (gVersionsToTest.empty())
     {
-        if (token.type == Parser::Token::LongOpt &&
-            token.data == "all-versions")
-        {
-            gTestAllVersions = true;
-            continue;
-        }
-
-        session.showHelp(session.configData().processName);
-        return -1;
+        gVersionsToTest.emplace_back(Config::CURRENT_LEDGER_PROTOCOL_VERSION);
     }
-
     r = session.run();
     gTestRoots.clear();
     gTestCfg->clear();
@@ -236,7 +238,9 @@ for_versions(std::vector<uint32> const& versions, Application& app,
     auto previousVersion = app.getLedgerManager().getCurrentLedgerVersion();
     for (auto v : versions)
     {
-        if (!gTestAllVersions && v != Config::CURRENT_LEDGER_PROTOCOL_VERSION)
+        if (!gTestAllVersions &&
+            std::find(gVersionsToTest.begin(), gVersionsToTest.end(), v) ==
+                gVersionsToTest.end())
         {
             continue;
         }

@@ -20,11 +20,11 @@ fi
 
 # Try to ensure we're using the real g++ and clang++ versions we want
 mkdir bin
-ln -s `which gcc-4.9` bin/gcc
-ln -s `which g++-4.9` bin/g++
-ln -s `which clang-3.5` bin/clang
-ln -s `which clang++-3.5` bin/clang++
-ln -s `which llvm-symbolizer-3.5` bin/llvm-symbolizer
+ln -s `which gcc-5` bin/gcc
+ln -s `which g++-5` bin/g++
+ln -s `which clang-5.0` bin/clang
+ln -s `which clang++-5.0` bin/clang++
+ln -s `which llvm-symbolizer-5.0` bin/llvm-symbolizer
 
 export PATH=`pwd`/bin:$PATH
 hash -r
@@ -33,11 +33,18 @@ g++ -v
 llvm-symbolizer --version || true
 
 # Create postgres databases
+if test $CXX = 'clang++'; then
+    RUN_PARTITIONS="0 1"
+elif test $CXX = 'g++'; then
+    RUN_PARTITIONS="2 3"
+fi
 export PGUSER=postgres
 psql -c "create database test;"
-for i in $(seq 0 15)
-do
-    psql -c "create database test$i;"
+for j in $RUN_PARTITIONS; do
+    base_instance=$((j*50))
+    for i in $(seq $base_instance $((base_instance+15))); do
+        psql -c "create database test$i;"
+    done
 done
 
 committer_of(){
@@ -75,5 +82,4 @@ fi
 make -j3
 ccache -s
 export ALL_VERSIONS=1
-make check
-
+env TEMP_POSTGRES=0 NUM_PARTITIONS=4 RUN_PARTITIONS="$RUN_PARTITIONS" make check

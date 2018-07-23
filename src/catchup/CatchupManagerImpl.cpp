@@ -16,7 +16,6 @@
 #include "util/Logging.h"
 #include "util/StatusManager.h"
 #include "util/format.h"
-#include "util/make_unique.h"
 #include "work/WorkManager.h"
 
 namespace stellar
@@ -25,7 +24,7 @@ namespace stellar
 std::unique_ptr<CatchupManager>
 CatchupManager::create(Application& app)
 {
-    return make_unique<CatchupManagerImpl>(app);
+    return std::make_unique<CatchupManagerImpl>(app);
 }
 
 CatchupManagerImpl::CatchupManagerImpl(Application& app)
@@ -92,16 +91,15 @@ CatchupManagerImpl::getCatchupFailureCount() const
 }
 
 void
-CatchupManagerImpl::logAndUpdateCatchupStatus(bool contiguous)
+CatchupManagerImpl::logAndUpdateCatchupStatus(bool contiguous,
+                                              std::string const& message)
 {
-    auto catchupStatus = getStatus();
-
-    if (!catchupStatus.empty())
+    if (!message.empty())
     {
         auto contiguousString =
             contiguous ? "" : " (discontiguous; will fail and restart)";
         auto state =
-            fmt::format("Catching up{}: {}", contiguousString, catchupStatus);
+            fmt::format("Catching up{}: {}", contiguousString, message);
         auto existing = mApp.getStatusManager().getStatusMessage(
             StatusCategory::HISTORY_CATCHUP);
         if (existing != state)
@@ -116,5 +114,11 @@ CatchupManagerImpl::logAndUpdateCatchupStatus(bool contiguous)
         mApp.getStatusManager().removeStatusMessage(
             StatusCategory::HISTORY_CATCHUP);
     }
+}
+
+void
+CatchupManagerImpl::logAndUpdateCatchupStatus(bool contiguous)
+{
+    logAndUpdateCatchupStatus(contiguous, getStatus());
 }
 }
