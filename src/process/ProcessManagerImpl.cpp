@@ -11,7 +11,6 @@
 
 #include "main/Application.h"
 #include "main/Config.h"
-#include "process/PosixSpawnFileActions.h"
 #include "process/ProcessManager.h"
 #include "process/ProcessManagerImpl.h"
 #include "util/Logging.h"
@@ -27,11 +26,6 @@
 #include <regex>
 #include <string>
 
-#ifndef _WIN32
-#include <errno.h>
-#include <fcntl.h>
-#endif
-
 #ifdef __APPLE__
 extern char** environ;
 #endif
@@ -39,16 +33,29 @@ extern char** environ;
 namespace stellar
 {
 
-static const asio::error_code ABORT_ERROR_CODE(asio::error::operation_aborted,
-                                               asio::system_category());
-
 std::shared_ptr<ProcessManager>
 ProcessManager::create(Application& app)
 {
     return std::make_shared<ProcessManagerImpl>(app);
 }
 
-std::atomic<size_t> ProcessManagerImpl::gNumProcessesActive{0};
+std::recursive_mutex ProcessManagerImpl::gImplsMutex;
+
+std::map<int, std::shared_ptr<ProcessExitEvent::Impl>>
+    ProcessManagerImpl::gImpls;
+
+size_t ProcessManagerImpl::gNumProcessesActive = 0;
+
+size_t
+ProcessManagerImpl::getNumRunningProcesses()
+{
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
+    return gNumProcessesActive;
+}
+
+ProcessManagerImpl::~ProcessManagerImpl()
+{
+}
 
 class ProcessExitEvent::Impl
     : public std::enable_shared_from_this<ProcessExitEvent::Impl>
@@ -62,13 +69,12 @@ class ProcessExitEvent::Impl
 #ifdef _WIN32
     asio::windows::object_handle mProcessHandle;
 #endif
-    std::weak_ptr<ProcessManagerImpl> mProcManagerImpl;
-    int mProcessId{-1};
+    std::shared_ptr<ProcessManagerImpl> mProcManagerImpl;
 
     Impl(std::shared_ptr<RealTimer> const& outerTimer,
          std::shared_ptr<asio::error_code> const& outerEc,
          std::string const& cmdLine, std::string const& outFile,
-         std::weak_ptr<ProcessManagerImpl> pm)
+         std::shared_ptr<ProcessManagerImpl> pm)
         : mOuterTimer(outerTimer)
         , mOuterEc(outerEc)
         , mCmdLine(cmdLine)
@@ -86,39 +92,7 @@ class ProcessExitEvent::Impl
         *mOuterEc = ec;
         mOuterTimer->cancel();
     }
-
-    int
-    getProcessId() const
-    {
-        return mProcessId;
-    }
 };
-
-size_t
-ProcessManagerImpl::getNumRunningProcesses()
-{
-    return gNumProcessesActive;
-}
-
-ProcessManagerImpl::~ProcessManagerImpl()
-{
-    const auto killProcess = [&](ProcessExitEvent::Impl& impl) {
-        impl.cancel(ABORT_ERROR_CODE);
-        forceShutdown(impl);
-    };
-    // Use SIGKILL on any processes we already used SIGINT on
-    while (!mKillableImpls.empty())
-    {
-        auto impl = std::move(mKillableImpls.front());
-        mKillableImpls.pop_front();
-        killProcess(*impl);
-    }
-    // Use SIGKILL on any processes we haven't politely asked to exit yet
-    for (auto& pair : mImpls)
-    {
-        killProcess(*pair.second);
-    }
-}
 
 bool
 ProcessManagerImpl::isShutdown() const
@@ -132,10 +106,9 @@ ProcessManagerImpl::shutdown()
     if (!mIsShutdown)
     {
         mIsShutdown = true;
-        auto ec = ABORT_ERROR_CODE;
+        auto ec = asio::error_code(1, asio::system_category());
 
         // Cancel all pending.
-        std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
         for (auto& pending : mPendingImpls)
         {
             pending->cancel(ec);
@@ -143,15 +116,16 @@ ProcessManagerImpl::shutdown()
         mPendingImpls.clear();
 
         // Cancel all running.
-        for (auto& pair : mImpls)
+        std::lock_guard<std::recursive_mutex> guard(
+            ProcessManagerImpl::gImplsMutex);
+        for (auto& pair : gImpls)
         {
-            // Mark it as "ready to be killed"
-            mKillableImpls.push_back(pair.second);
-            // Cancel any pending events and shut down the process cleanly
             pair.second->cancel(ec);
-            cleanShutdown(*pair.second);
+#ifdef _WIN32
+            pair.second->mProcessHandle.cancel(ec);
+#endif
         }
-        mImpls.clear();
+        gImpls.clear();
         gNumProcessesActive = 0;
 #ifndef _WIN32
         mSigChild.cancel(ec);
@@ -185,8 +159,7 @@ ProcessManagerImpl::handleSignalWait()
 void
 ProcessExitEvent::Impl::run()
 {
-    auto manager = mProcManagerImpl.lock();
-    assert(manager && !manager->isShutdown());
+    assert(!mProcManagerImpl->isShutdown());
     if (mRunning)
     {
         CLOG(ERROR, "Process") << "ProcessExitEvent::Impl already running";
@@ -229,17 +202,13 @@ ProcessExitEvent::Impl::run()
                        nullptr, // Process handle not inheritable
                        nullptr, // Thread handle not inheritable
                        TRUE,    // Inherit file handles
-                       CREATE_NEW_PROCESS_GROUP, // Create a new process group
+                       0,       // No creation flags
                        nullptr, // Use parent's environment block
                        nullptr, // Use parent's starting directory
                        &si,     // Pointer to STARTUPINFO structure
                        &pi)     // Pointer to PROCESS_INFORMATION structure
     )
     {
-        if (si.hStdOutput != NULL)
-        {
-            CloseHandle(si.hStdOutput);
-        }
         CLOG(ERROR, "Process") << "CreateProcess() failed: " << GetLastError();
         throw std::runtime_error("CreateProcess() failed");
     }
@@ -248,23 +217,25 @@ ProcessExitEvent::Impl::run()
     pi.hThread = INVALID_HANDLE_VALUE;
 
     mProcessHandle.assign(pi.hProcess);
-    mProcessId = pi.dwProcessId;
 
     // capture a shared pointer to "this" to keep Impl alive until the end
     // of the execution
     auto sf = shared_from_this();
     mProcessHandle.async_wait([sf](asio::error_code ec) {
-        auto manager = sf->mProcManagerImpl.lock();
-        if (!manager || manager->isShutdown())
+        if (sf->mProcManagerImpl->isShutdown())
         {
             return;
         }
 
-        --ProcessManagerImpl::gNumProcessesActive;
+        {
+            std::lock_guard<std::recursive_mutex> guard(
+                ProcessManagerImpl::gImplsMutex);
+            --ProcessManagerImpl::gNumProcessesActive;
+        }
 
         // Fire off any new processes we've made room for before we
         // trigger the callback.
-        manager->maybeRunPendingProcesses();
+        sf->mProcManagerImpl->maybeRunPendingProcesses();
 
         if (ec)
         {
@@ -281,42 +252,9 @@ ProcessExitEvent::Impl::run()
             }
             ec = asio::error_code(exitCode, asio::system_category());
         }
-        manager->handleProcessTermination(sf->mProcessId, ec.value());
         sf->cancel(ec);
     });
     mRunning = true;
-}
-
-void
-ProcessManagerImpl::handleProcessTermination(int pid, int /*status*/)
-{
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
-    mImpls.erase(pid);
-}
-
-void
-ProcessManagerImpl::cleanShutdown(ProcessExitEvent::Impl& impl)
-{
-    if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, impl.getProcessId()))
-    {
-        CLOG(WARNING, "Process")
-            << "failed to cleanly shutdown process with pid "
-            << impl.getProcessId() << ", error code " << GetLastError();
-    }
-}
-
-void
-ProcessManagerImpl::forceShutdown(ProcessExitEvent::Impl& impl)
-{
-    if (!TerminateProcess(impl.mProcessHandle.native_handle(), 1))
-    {
-        CLOG(WARNING, "Process")
-            << "failed to force shutdown of process with pid "
-            << impl.getProcessId() << ", error code " << GetLastError();
-    }
-    // Cancel any pending events on the handle. Ignore error code
-    asio::error_code dummy;
-    impl.mProcessHandle.cancel(dummy);
 }
 
 #else
@@ -329,14 +267,14 @@ ProcessManagerImpl::ProcessManagerImpl(Application& app)
     , mIOService(app.getClock().getIOService())
     , mSigChild(mIOService, SIGCHLD)
 {
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
     startSignalWait();
 }
 
 void
 ProcessManagerImpl::startSignalWait()
 {
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
     mSigChild.async_wait(
         std::bind(&ProcessManagerImpl::handleSignalWait, this));
 }
@@ -348,130 +286,90 @@ ProcessManagerImpl::handleSignalWait()
     {
         return;
     }
-    // Store tuples (pid, status)
-    std::vector<std::tuple<int, int>> signaledChildren;
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
-    for (auto const& implPair : mImpls)
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
+    for (;;)
     {
-        const int pid = implPair.first;
         int status = 0;
-        // If we find the child for which we received this SIGCHLD signal,
-        // store the pid and status
-        if (waitpid(pid, &status, WNOHANG) > 0)
+        int pid = waitpid(-1, &status, WNOHANG);
+        if (pid > 0)
         {
-            signaledChildren.push_back(std::make_tuple(pid, status));
-        }
-    }
+            auto pair = gImpls.find(pid);
+            if (pair == gImpls.end())
+            {
+                // Possible some other ProcessManager shut down and cleared
+                // out gImpls already.
+                continue;
+            }
+            auto impl = pair->second;
 
-    if (!signaledChildren.empty())
-    {
-        CLOG(DEBUG, "Process") << "found " << signaledChildren.size()
-                               << " child processes that terminated";
-        // Now go all over all (pid, status) and handle them
-        for (auto const& pidStatus : signaledChildren)
-        {
-            const int pid = std::get<0>(pidStatus);
-            const int status = std::get<1>(pidStatus);
-            handleProcessTermination(pid, status);
-        }
-    }
-    startSignalWait();
-}
+            asio::error_code ec;
+            if (WIFEXITED(status))
+            {
+                if (WEXITSTATUS(status) == 0)
+                {
+                    CLOG(DEBUG, "Process")
+                        << "process " << pid << " exited "
+                        << WEXITSTATUS(status) << ": " << impl->mCmdLine;
+                }
+                else
+                {
+                    CLOG(WARNING, "Process")
+                        << "process " << pid << " exited "
+                        << WEXITSTATUS(status) << ": " << impl->mCmdLine;
+                }
+#ifdef __linux__
+                // Linux posix_spawnp does not fault on file-not-found in the
+                // parent process at the point of invocation, as BSD does; so
+                // rather than a fatal error / throw we get an ambiguous and
+                // easily-overlooked shell-like 'exit 127' on waitpid.
+                if (WEXITSTATUS(status) == 127)
+                {
+                    CLOG(WARNING, "Process") << "";
+                    CLOG(WARNING, "Process") << "************";
+                    CLOG(WARNING, "Process") << "";
+                    CLOG(WARNING, "Process") << "  likely 'missing command':";
+                    CLOG(WARNING, "Process") << "";
+                    CLOG(WARNING, "Process") << "    " << impl->mCmdLine;
+                    CLOG(WARNING, "Process") << "";
+                    CLOG(WARNING, "Process") << "************";
+                    CLOG(WARNING, "Process") << "";
+                }
+#endif
+                // FIXME: this doesn't _quite_ do the right thing; it conveys
+                // the exit status back to the caller but it puts it in "system
+                // category" which on POSIX means if you call .message() on it
+                // you'll get perror(value()), which is not correct. Errno has
+                // nothing to do with process exit values. We could make a new
+                // error_category to tighten this up, but it's a bunch of work
+                // just to convey the meaningless string "exited" to the user.
+                ec = asio::error_code(WEXITSTATUS(status),
+                                      asio::system_category());
+            }
+            else
+            {
+                // FIXME: for now we also collapse all non-WIFEXITED exits on
+                // posix into a single "exit 1" error_code. This is enough
+                // for most callers; we can enrich it if anyone really wants
+                // to differentiate various signals that might have killed
+                // the child.
+                ec = asio::error_code(1, asio::system_category());
+            }
 
-void
-ProcessManagerImpl::handleProcessTermination(int pid, int status)
-{
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
-    auto pair = mImpls.find(pid);
-    if (pair == mImpls.end())
-    {
-        CLOG(DEBUG, "Process") << "failed to find process with pid " << pid;
-        return;
-    }
-    auto impl = pair->second;
+            --gNumProcessesActive;
+            gImpls.erase(pair);
 
-    asio::error_code ec;
-    if (WIFEXITED(status))
-    {
-        if (WEXITSTATUS(status) == 0)
-        {
-            CLOG(DEBUG, "Process")
-                << "process " << pid << " exited " << WEXITSTATUS(status)
-                << ": " << impl->mCmdLine;
+            // Fire off any new processes we've made room for before we
+            // trigger the callback.
+            maybeRunPendingProcesses();
+
+            impl->cancel(ec);
         }
         else
         {
-            CLOG(WARNING, "Process")
-                << "process " << pid << " exited " << WEXITSTATUS(status)
-                << ": " << impl->mCmdLine;
+            break;
         }
-#ifdef __linux__
-        // Linux posix_spawnp does not fault on file-not-found in the
-        // parent process at the point of invocation, as BSD does; so
-        // rather than a fatal error / throw we get an ambiguous and
-        // easily-overlooked shell-like 'exit 127' on waitpid.
-        if (WEXITSTATUS(status) == 127)
-        {
-            CLOG(WARNING, "Process") << "";
-            CLOG(WARNING, "Process") << "************";
-            CLOG(WARNING, "Process") << "";
-            CLOG(WARNING, "Process") << "  likely 'missing command':";
-            CLOG(WARNING, "Process") << "";
-            CLOG(WARNING, "Process") << "    " << impl->mCmdLine;
-            CLOG(WARNING, "Process") << "";
-            CLOG(WARNING, "Process") << "************";
-            CLOG(WARNING, "Process") << "";
-        }
-#endif
-        // FIXME: this doesn't _quite_ do the right thing; it conveys
-        // the exit status back to the caller but it puts it in "system
-        // category" which on POSIX means if you call .message() on it
-        // you'll get perror(value()), which is not correct. Errno has
-        // nothing to do with process exit values. We could make a new
-        // error_category to tighten this up, but it's a bunch of work
-        // just to convey the meaningless string "exited" to the user.
-        ec = asio::error_code(WEXITSTATUS(status), asio::system_category());
     }
-    else
-    {
-        // FIXME: for now we also collapse all non-WIFEXITED exits on
-        // posix into a single "exit 1" error_code. This is enough
-        // for most callers; we can enrich it if anyone really wants
-        // to differentiate various signals that might have killed
-        // the child.
-        ec = asio::error_code(1, asio::system_category());
-    }
-
-    --gNumProcessesActive;
-    mImpls.erase(pair);
-
-    // Fire off any new processes we've made room for before we
-    // trigger the callback.
-    maybeRunPendingProcesses();
-
-    impl->cancel(ec);
-}
-
-void
-ProcessManagerImpl::cleanShutdown(ProcessExitEvent::Impl& impl)
-{
-    const int pid = impl.getProcessId();
-    if (kill(pid, SIGINT) != 0)
-    {
-        CLOG(WARNING, "Process")
-            << "kill (SIGINT) failed for pid " << pid << ", errno " << errno;
-    }
-}
-
-void
-ProcessManagerImpl::forceShutdown(ProcessExitEvent::Impl& impl)
-{
-    const int pid = impl.getProcessId();
-    if (kill(pid, SIGKILL) != 0)
-    {
-        CLOG(WARNING, "Process")
-            << "kill (SIGKILL) failed for pid " << pid << ", errno " << errno;
-    }
+    startSignalWait();
 }
 
 static std::vector<std::string>
@@ -487,13 +385,14 @@ split(std::string const& s)
 void
 ProcessExitEvent::Impl::run()
 {
-    auto manager = mProcManagerImpl.lock();
-    assert(!manager->isShutdown());
+    assert(!mProcManagerImpl->isShutdown());
     if (mRunning)
     {
         CLOG(ERROR, "Process") << "ProcessExitEvent::Impl already running";
         throw std::runtime_error("ProcessExitEvent::Impl already running");
     }
+    std::lock_guard<std::recursive_mutex> guard(
+        ProcessManagerImpl::gImplsMutex);
     std::vector<std::string> args = split(mCmdLine);
     std::vector<char*> argv;
     for (auto& a : args)
@@ -501,25 +400,31 @@ ProcessExitEvent::Impl::run()
         argv.push_back((char*)a.data());
     }
     argv.push_back(nullptr);
-    int err = 0;
+    int pid, err = 0;
 
-    PosixSpawnFileActions fileActions;
+    posix_spawn_file_actions_t fileActions;
     if (!mOutFile.empty())
     {
-        fileActions.addOpen(1, mOutFile, O_RDWR | O_CREAT, 0600);
-    }
-    // Iterate through all possibly open file descriptors except stdin, stdout,
-    // and stderr and set FD_CLOEXEC so the subprocess doesn't inherit them
-    const int maxFds = sysconf(_SC_OPEN_MAX);
-    for (int fd = 3; fd < maxFds; ++fd)
-    {
-        int flags = fcntl(fd, F_GETFD);
-        if (flags != -1)
+        err = posix_spawn_file_actions_init(&fileActions);
+        if (err)
         {
-            fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+            CLOG(ERROR, "Process")
+                << "posix_spawn_file_actions_init() failed: " << strerror(err);
+            throw std::runtime_error("posix_spawn_file_actions_init() failed");
+        }
+        err = posix_spawn_file_actions_addopen(
+            &fileActions, 1, mOutFile.c_str(), O_RDWR | O_CREAT, 0600);
+        if (err)
+        {
+            CLOG(ERROR, "Process")
+                << "posix_spawn_file_actions_addopen() failed: "
+                << strerror(err);
+            throw std::runtime_error(
+                "posix_spawn_file_actions_addopen() failed");
         }
     }
-    err = posix_spawnp(&mProcessId, argv[0], fileActions,
+
+    err = posix_spawnp(&pid, argv[0], mOutFile.empty() ? nullptr : &fileActions,
                        nullptr, // posix_spawnattr_t*
                        argv.data(), environ);
     if (err)
@@ -528,6 +433,19 @@ ProcessExitEvent::Impl::run()
         throw std::runtime_error("posix_spawn() failed");
     }
 
+    if (!mOutFile.empty())
+    {
+        err = posix_spawn_file_actions_destroy(&fileActions);
+        if (err)
+        {
+            CLOG(ERROR, "Process")
+                << "posix_spawn_file_actions_destroy() failed: "
+                << strerror(err);
+            throw std::runtime_error(
+                "posix_spawn_file_actions_destroy() failed");
+        }
+    }
+    ProcessManagerImpl::gImpls[pid] = shared_from_this();
     mRunning = true;
 }
 
@@ -536,13 +454,12 @@ ProcessExitEvent::Impl::run()
 ProcessExitEvent
 ProcessManagerImpl::runProcess(std::string const& cmdLine, std::string outFile)
 {
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
     ProcessExitEvent pe(mIOService);
     std::shared_ptr<ProcessManagerImpl> self =
         std::static_pointer_cast<ProcessManagerImpl>(shared_from_this());
-    std::weak_ptr<ProcessManagerImpl> weakSelf(self);
-    pe.mImpl = std::make_shared<ProcessExitEvent::Impl>(
-        pe.mTimer, pe.mEc, cmdLine, outFile, weakSelf);
+    pe.mImpl = std::make_shared<ProcessExitEvent::Impl>(pe.mTimer, pe.mEc,
+                                                        cmdLine, outFile, self);
     mPendingImpls.push_back(pe.mImpl);
 
     maybeRunPendingProcesses();
@@ -556,7 +473,7 @@ ProcessManagerImpl::maybeRunPendingProcesses()
     {
         return;
     }
-    std::lock_guard<std::recursive_mutex> guard(mImplsMutex);
+    std::lock_guard<std::recursive_mutex> guard(gImplsMutex);
     while (!mPendingImpls.empty() && gNumProcessesActive < mMaxProcesses)
     {
         auto i = mPendingImpls.front();
@@ -564,14 +481,11 @@ ProcessManagerImpl::maybeRunPendingProcesses()
         try
         {
             CLOG(DEBUG, "Process") << "Running: " << i->mCmdLine;
-
             i->run();
-            mImpls[i->getProcessId()] = i;
             ++gNumProcessesActive;
         }
         catch (std::runtime_error& e)
         {
-            i->cancel(std::make_error_code(std::errc::io_error));
             CLOG(ERROR, "Process") << "Error starting process: " << e.what();
             CLOG(ERROR, "Process") << "When running: " << i->mCmdLine;
         }

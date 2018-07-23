@@ -4,8 +4,6 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "lib/catch.hpp"
-
 namespace Catch
 {
 
@@ -48,20 +46,18 @@ struct SimpleTestReporter : public ConsoleReporter
     void
     assertionStarting(AssertionInfo const& ai) override
     {
-        mLastAssertInfo = std::make_unique<AssertionInfo>(ai);
+        mLastAssertInfo = ai;
     }
 
     bool
     assertionEnded(AssertionStats const& _assertionStats) override
     {
-        bool res = _assertionStats.assertionResult.isOk();
-        if (!res)
-        {
-            ConsoleReporter::assertionStarting(*mLastAssertInfo);
-            res = ConsoleReporter::assertionEnded(_assertionStats);
-        }
-        mLastAssertInfo.reset();
-        return res;
+        AssertionResult const& result = _assertionStats.assertionResult;
+
+        if (result.isOk())
+            return true;
+        ConsoleReporter::assertionStarting(mLastAssertInfo);
+        return ConsoleReporter::assertionEnded(_assertionStats);
     }
 
     void
@@ -74,12 +70,12 @@ struct SimpleTestReporter : public ConsoleReporter
   private:
     int mDots{0};
 
-    std::unique_ptr<AssertionInfo> mLastAssertInfo;
+    AssertionInfo mLastAssertInfo;
 
     void
     printDot()
     {
-        stream << '.' << std::flush;
+        stream << '.';
         mDots++;
         if (mDots == 40)
         {
@@ -95,5 +91,5 @@ struct SimpleTestReporter : public ConsoleReporter
     }
 };
 
-CATCH_REGISTER_REPORTER("simple", SimpleTestReporter)
+INTERNAL_CATCH_REGISTER_REPORTER("simple", SimpleTestReporter)
 }

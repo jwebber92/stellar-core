@@ -7,6 +7,7 @@
 
 #include "lib/util/format.h"
 #include "util/Logging.h"
+#include "util/make_unique.h"
 
 namespace stellar
 {

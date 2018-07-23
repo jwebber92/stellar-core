@@ -84,10 +84,10 @@ class BallotProtocol
 
     // returns information about the local state in JSON format
     // including historical statements if available
-    Json::Value getJsonInfo();
+    void dumpInfo(Json::Value& ret);
 
     // returns information about the quorum for a given node
-    Json::Value getJsonQuorumInfo(NodeID const& id, bool summary);
+    void dumpQuorumInfo(Json::Value& ret, NodeID const& id, bool summary);
 
     // returns the hash of the QuorumSet that should be downloaded
     // with the statement.

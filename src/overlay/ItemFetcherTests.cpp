@@ -13,6 +13,7 @@
 #include "overlay/OverlayManager.h"
 #include "test/TestUtils.h"
 #include "test/test.h"
+#include "util/make_unique.h"
 #include "xdr/Stellar-types.h"
 
 namespace stellar
@@ -56,7 +57,7 @@ class ApplicationStub : public TestApplication
     virtual std::unique_ptr<Herder>
     createHerder() override
     {
-        return std::make_unique<HerderStub>(*this);
+        return make_unique<HerderStub>(*this);
     }
 };
 

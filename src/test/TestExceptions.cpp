@@ -219,8 +219,6 @@ throwIf(AccountMergeResult const& result)
         throw ex_ACCOUNT_MERGE_IMMUTABLE_SET{};
     case ACCOUNT_MERGE_HAS_SUB_ENTRIES:
         throw ex_ACCOUNT_MERGE_HAS_SUB_ENTRIES{};
-    case ACCOUNT_MERGE_SEQNUM_TOO_FAR:
-        throw ex_ACCOUNT_MERGE_SEQNUM_TOO_FAR{};
     case ACCOUNT_MERGE_SUCCESS:
         break;
     default:
@@ -263,29 +261,10 @@ throwIf(ManageDataResult const& result)
 }
 
 void
-throwIf(BumpSequenceResult const& result)
-{
-    switch (result.code())
-    {
-    case BUMP_SEQUENCE_SUCCESS:
-        break;
-    case BUMP_SEQUENCE_BAD_SEQ:
-        throw ex_BUMP_SEQUENCE_BAD_SEQ{};
-    default:
-        throw ex_UNKNOWN{};
-    }
-}
-
-void
 throwIf(TransactionResult const& result)
 {
     switch (result.result.code())
     {
-    case txSUCCESS:
-    case txFAILED:
-        break;
-    case txBAD_SEQ:
-        throw ex_txBAD_SEQ{};
     case txNO_ACCOUNT:
         throw ex_txNO_ACCOUNT{};
     case txINTERNAL_ERROR:
@@ -295,27 +274,11 @@ throwIf(TransactionResult const& result)
     case txBAD_AUTH:
         throw ex_txBAD_AUTH{};
     default:
-        throw ex_UNKNOWN{};
+        // ignore rest for now
+        break;
     }
 
     auto opResult = result.result.results()[0];
-    switch (opResult.code())
-    {
-    case opINNER:
-        break;
-    case opBAD_AUTH:
-        throw ex_opBAD_AUTH{};
-        break;
-    case opNO_ACCOUNT:
-        throw ex_opNO_ACCOUNT{};
-        break;
-    case opNOT_SUPPORTED:
-        throw ex_opNOT_SUPPORTED{};
-        break;
-    default:
-        throw ex_UNKNOWN{};
-    };
-
     switch (opResult.tr().type())
     {
     case CREATE_ACCOUNT:
@@ -350,9 +313,6 @@ throwIf(TransactionResult const& result)
         break;
     case MANAGE_DATA:
         throwIf(opResult.tr().manageDataResult());
-        break;
-    case BUMP_SEQUENCE:
-        throwIf(opResult.tr().bumpSeqResult());
         break;
     }
 }

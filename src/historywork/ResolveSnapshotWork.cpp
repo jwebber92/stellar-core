@@ -28,8 +28,7 @@ ResolveSnapshotWork::onRun()
 {
     mSnapshot->mLocalState.resolveAnyReadyFutures();
     mSnapshot->makeLive();
-    if ((mApp.getLedgerManager().getLastClosedLedgerNum() >
-         mSnapshot->mLocalState.currentLedger) &&
+    if (mApp.getLedgerManager().getState() == LedgerManager::LM_SYNCED_STATE &&
         mSnapshot->mLocalState.futuresAllResolved())
     {
         scheduleSuccess();

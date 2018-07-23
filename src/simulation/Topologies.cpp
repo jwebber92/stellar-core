@@ -11,11 +11,10 @@ using namespace std;
 
 Simulation::pointer
 Topologies::pair(Simulation::Mode mode, Hash const& networkID,
-                 Simulation::ConfigGen confGen,
-                 Simulation::QuorumSetAdjuster qSetAdjust)
+                 std::function<Config()> confGen)
 {
     Simulation::pointer simulation =
-        make_shared<Simulation>(mode, networkID, confGen, qSetAdjust);
+        make_shared<Simulation>(mode, networkID, confGen);
 
     SIMULATION_CREATE_NODE(10);
     SIMULATION_CREATE_NODE(11);
@@ -34,11 +33,10 @@ Topologies::pair(Simulation::Mode mode, Hash const& networkID,
 }
 
 Simulation::pointer
-Topologies::cycle4(Hash const& networkID, Simulation::ConfigGen confGen,
-                   Simulation::QuorumSetAdjuster qSetAdjust)
+Topologies::cycle4(Hash const& networkID, std::function<Config()> confGen)
 {
-    Simulation::pointer simulation = make_shared<Simulation>(
-        Simulation::OVER_LOOPBACK, networkID, confGen, qSetAdjust);
+    Simulation::pointer simulation =
+        make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID, confGen);
 
     SIMULATION_CREATE_NODE(0);
     SIMULATION_CREATE_NODE(1);
@@ -87,11 +85,10 @@ Topologies::cycle4(Hash const& networkID, Simulation::ConfigGen confGen,
 Simulation::pointer
 Topologies::separate(int nNodes, double quorumThresoldFraction,
                      Simulation::Mode mode, Hash const& networkID,
-                     Simulation::ConfigGen confGen,
-                     Simulation::QuorumSetAdjuster qSetAdjust)
+                     std::function<Config()> confGen)
 {
     Simulation::pointer simulation =
-        make_shared<Simulation>(mode, networkID, confGen, qSetAdjust);
+        make_shared<Simulation>(mode, networkID, confGen);
 
     vector<SecretKey> keys;
     for (int i = 0; i < nNodes; i++)
@@ -119,14 +116,13 @@ Topologies::separate(int nNodes, double quorumThresoldFraction,
 Simulation::pointer
 Topologies::core(int nNodes, double quorumThresoldFraction,
                  Simulation::Mode mode, Hash const& networkID,
-                 Simulation::ConfigGen confGen,
-                 Simulation::QuorumSetAdjuster qSetAdjust)
+                 std::function<Config()> confGen)
 {
     auto simulation = Topologies::separate(nNodes, quorumThresoldFraction, mode,
-                                           networkID, confGen, qSetAdjust);
+                                           networkID, confGen);
 
     auto nodes = simulation->getNodeIDs();
-    assert(static_cast<int>(nodes.size()) == nNodes);
+    assert(nodes.size() == nNodes);
 
     for (int from = 0; from < nNodes - 1; from++)
     {
@@ -142,14 +138,13 @@ Topologies::core(int nNodes, double quorumThresoldFraction,
 Simulation::pointer
 Topologies::cycle(int nNodes, double quorumThresoldFraction,
                   Simulation::Mode mode, Hash const& networkID,
-                  Simulation::ConfigGen confGen,
-                  Simulation::QuorumSetAdjuster qSetAdjust)
+                  std::function<Config()> confGen)
 {
     auto simulation = Topologies::separate(nNodes, quorumThresoldFraction, mode,
-                                           networkID, confGen, qSetAdjust);
+                                           networkID, confGen);
 
     auto nodes = simulation->getNodeIDs();
-    assert(static_cast<int>(nodes.size()) == nNodes);
+    assert(nodes.size() == nNodes);
 
     for (int from = 0; from < nNodes; from++)
     {
@@ -163,14 +158,13 @@ Topologies::cycle(int nNodes, double quorumThresoldFraction,
 Simulation::pointer
 Topologies::branchedcycle(int nNodes, double quorumThresoldFraction,
                           Simulation::Mode mode, Hash const& networkID,
-                          Simulation::ConfigGen confGen,
-                          Simulation::QuorumSetAdjuster qSetAdjust)
+                          std::function<Config()> confGen)
 {
     auto simulation = Topologies::separate(nNodes, quorumThresoldFraction, mode,
-                                           networkID, confGen, qSetAdjust);
+                                           networkID, confGen);
 
     auto nodes = simulation->getNodeIDs();
-    assert(static_cast<int>(nodes.size()) == nNodes);
+    assert(nodes.size() == nNodes);
 
     for (int from = 0; from < nNodes; from++)
     {
@@ -184,12 +178,13 @@ Topologies::branchedcycle(int nNodes, double quorumThresoldFraction,
     return simulation;
 }
 
-Simulation::pointer Topologies::hierarchicalQuorum(
-    int nBranches, Simulation::Mode mode, Hash const& networkID,
-    Simulation::ConfigGen confGen, int connectionsToCore,
-    Simulation::QuorumSetAdjuster qSetAdjust) // Figure 3 from the paper
+Simulation::pointer
+Topologies::hierarchicalQuorum(int nBranches, Simulation::Mode mode,
+                               Hash const& networkID,
+                               std::function<Config()> confGen,
+                               int connectionsToCore) // Figure 3 from the paper
 {
-    auto sim = Topologies::core(4, 0.75, mode, networkID, confGen, qSetAdjust);
+    auto sim = Topologies::core(4, 0.75, mode, networkID, confGen);
     vector<NodeID> coreNodeIDs;
     for (auto const& coreNodeID : sim->getNodeIDs())
     {
@@ -250,14 +245,14 @@ Simulation::pointer Topologies::hierarchicalQuorum(
 }
 
 Simulation::pointer
-Topologies::hierarchicalQuorumSimplified(
-    int coreSize, int nbOuterNodes, Simulation::Mode mode,
-    Hash const& networkID, Simulation::ConfigGen confGen, int connectionsToCore,
-    Simulation::QuorumSetAdjuster qSetAdjust)
+Topologies::hierarchicalQuorumSimplified(int coreSize, int nbOuterNodes,
+                                         Simulation::Mode mode,
+                                         Hash const& networkID,
+                                         std::function<Config()> confGen,
+                                         int connectionsToCore)
 {
     // outer nodes are independent validators that point to a [core network]
-    auto sim =
-        Topologies::core(coreSize, 0.75, mode, networkID, confGen, qSetAdjust);
+    auto sim = Topologies::core(coreSize, 0.75, mode, networkID, confGen);
 
     // each additional node considers themselves as validator
     // with a quorum set that also includes the core
@@ -291,11 +286,9 @@ Topologies::hierarchicalQuorumSimplified(
 
 Simulation::pointer
 Topologies::customA(Simulation::Mode mode, Hash const& networkID,
-                    Simulation::ConfigGen confGen, int connections,
-                    Simulation::QuorumSetAdjuster qSetAdjust)
+                    std::function<Config()> confGen, int connections)
 {
-    Simulation::pointer s =
-        make_shared<Simulation>(mode, networkID, confGen, qSetAdjust);
+    Simulation::pointer s = make_shared<Simulation>(mode, networkID, confGen);
 
     enum kIDs
     {
@@ -360,7 +353,7 @@ Topologies::customA(Simulation::Mode mode, Hash const& networkID,
 
     // create connections between nodes
     auto nodes = s->getNodeIDs();
-    for (int i = 0; i < static_cast<int>(nodes.size()); i++)
+    for (int i = 0; i < nodes.size(); i++)
     {
         auto from = nodes[i];
         for (int j = 1; j <= connections; j++)

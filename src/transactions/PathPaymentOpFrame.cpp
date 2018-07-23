@@ -10,7 +10,6 @@
 #include "ledger/OfferFrame.h"
 #include "ledger/TrustFrame.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include <algorithm>
 
 #include "main/Application.h"
@@ -21,6 +20,7 @@ namespace stellar
 {
 
 using namespace std;
+using xdr::operator==;
 
 PathPaymentOpFrame::PathPaymentOpFrame(Operation const& op,
                                        OperationResult& res,
@@ -186,7 +186,7 @@ PathPaymentOpFrame::doApply(Application& app, LedgerDelta& delta,
         medida::MetricsRegistry& metrics = app.getMetrics();
         OfferExchange::ConvertResult r = oe.convertWithOffers(
             curA, INT64_MAX, curASent, curB, curBReceived, actualCurBReceived,
-            true, [this, &metrics](OfferFrame const& o) {
+            [this, &metrics](OfferFrame const& o) {
                 if (o.getSellerID() == getSourceID())
                 {
                     // we are crossing our own offer, potentially invalidating

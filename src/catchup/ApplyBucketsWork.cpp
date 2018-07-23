@@ -19,6 +19,7 @@
 #include "ledger/TrustFrame.h"
 #include "main/Application.h"
 #include "util/format.h"
+#include "util/make_unique.h"
 #include <medida/meter.h>
 #include <medida/metrics_registry.h>
 
@@ -105,7 +106,7 @@ ApplyBucketsWork::onStart()
     {
         mSnapBucket = getBucket(i.snap);
         mSnapApplicator =
-            std::make_unique<BucketApplicator>(mApp.getDatabase(), mSnapBucket);
+            make_unique<BucketApplicator>(mApp.getDatabase(), mSnapBucket);
         CLOG(DEBUG, "History") << "ApplyBuckets : starting level[" << mLevel
                                << "].snap = " << i.snap;
         mApplying = true;
@@ -115,7 +116,7 @@ ApplyBucketsWork::onStart()
     {
         mCurrBucket = getBucket(i.curr);
         mCurrApplicator =
-            std::make_unique<BucketApplicator>(mApp.getDatabase(), mCurrBucket);
+            make_unique<BucketApplicator>(mApp.getDatabase(), mCurrBucket);
         CLOG(DEBUG, "History") << "ApplyBuckets : starting level[" << mLevel
                                << "].curr = " << i.curr;
         mApplying = true;

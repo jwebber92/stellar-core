@@ -4,7 +4,6 @@
 
 #include "LedgerTestUtils.h"
 #include "database/Database.h"
-#include "herder/LedgerCloseData.h"
 #include "ledger/AccountFrame.h"
 #include "ledger/EntryFrame.h"
 #include "ledger/LedgerDelta.h"

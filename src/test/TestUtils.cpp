@@ -4,6 +4,7 @@
 
 #include "TestUtils.h"
 #include "overlay/LoopbackPeer.h"
+#include "util/make_unique.h"
 
 namespace stellar
 {
@@ -78,7 +79,7 @@ TestApplication::TestApplication(VirtualClock& clock, Config const& cfg)
 std::unique_ptr<InvariantManager>
 TestApplication::createInvariantManager()
 {
-    return std::make_unique<TestInvariantManager>(getMetrics());
+    return make_unique<TestInvariantManager>(getMetrics());
 }
 
 time_t

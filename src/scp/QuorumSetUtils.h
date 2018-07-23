@@ -4,13 +4,11 @@
 
 #pragma once
 
-#include "xdr/Stellar-SCP.h"
-
 namespace stellar
 {
 
-bool isQuorumSetSane(SCPQuorumSet const& qSet, bool extraChecks);
+struct SCPQuorumSet;
 
-// normalize the quorum set, optionally removing idToRemove
-void normalizeQSet(SCPQuorumSet& qSet, NodeID const* idToRemove = nullptr);
+bool isQuorumSetSane(SCPQuorumSet const& qSet, bool extraChecks);
+void normalizeQSet(SCPQuorumSet& qSet);
 }

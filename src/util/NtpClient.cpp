@@ -5,6 +5,7 @@
 #include "NtpClient.h"
 
 #include "util/Logging.h"
+#include "util/make_unique.h"
 
 #include <array>
 
@@ -76,7 +77,7 @@ NtpClient::onServerResolved(asio::error_code ec,
         return;
     }
 
-    mSocket = std::make_unique<asio::ip::udp::socket>(mIoService);
+    mSocket = make_unique<asio::ip::udp::socket>(mIoService);
 
     std::weak_ptr<NtpClient> weak =
         std::static_pointer_cast<NtpClient>(shared_from_this());

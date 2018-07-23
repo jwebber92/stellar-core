@@ -9,7 +9,6 @@
 #include "herder/HerderSCPDriver.h"
 #include "herder/Upgrades.h"
 #include "util/Timer.h"
-#include "util/XDROperators.h"
 #include <deque>
 #include <memory>
 #include <unordered_map>
@@ -27,6 +26,9 @@ namespace stellar
 class Application;
 class LedgerManager;
 class HerderSCPDriver;
+
+using xdr::operator<;
+using xdr::operator==;
 
 /*
  * Is in charge of receiving transactions from the network.
@@ -64,12 +66,12 @@ class HerderImpl : public Herder
                                    const SCPQuorumSet& qset,
                                    TxSetFrame txset) override;
 
-    void sendSCPStateToPeer(uint32 ledgerSeq, Peer::pointer peer) override;
+    void sendSCPStateToPeer(uint32 ledgerSeq, PeerPtr peer) override;
 
     bool recvSCPQuorumSet(Hash const& hash, const SCPQuorumSet& qset) override;
     bool recvTxSet(Hash const& hash, const TxSetFrame& txset) override;
     void peerDoesntHave(MessageType type, uint256 const& itemID,
-                        Peer::pointer peer) override;
+                        PeerPtr peer) override;
     TxSetFramePtr getTxSet(Hash const& hash) override;
     SCPQuorumSetPtr getQSet(Hash const& qSetHash) override;
 
@@ -86,9 +88,9 @@ class HerderImpl : public Herder
 
     bool resolveNodeID(std::string const& s, PublicKey& retKey) override;
 
-    Json::Value getJsonInfo(size_t limit) override;
-    Json::Value getJsonQuorumInfo(NodeID const& id, bool summary,
-                                  uint64 index) override;
+    void dumpInfo(Json::Value& ret, size_t limit) override;
+    void dumpQuorumInfo(Json::Value& ret, NodeID const& id, bool summary,
+                        uint64 index) override;
 
     struct TxMap
     {

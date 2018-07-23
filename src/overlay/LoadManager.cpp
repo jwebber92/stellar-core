@@ -9,13 +9,14 @@
 #include "main/Config.h"
 #include "overlay/OverlayManager.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include "util/types.h"
 
 #include <chrono>
 
 namespace stellar
 {
+using xdr::operator<;
+
 LoadManager::LoadManager() : mPeerCosts(128)
 {
 }

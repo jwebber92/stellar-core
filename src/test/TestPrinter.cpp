@@ -3,13 +3,36 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "test/TestPrinter.h"
-#include "lib/util/format.h"
 #include "test/TestMarket.h"
+#include <lib/util/format.h>
 
 namespace Catch
 {
+
+template <>
 std::string
-StringMaker<stellar::OfferState>::convert(stellar::OfferState const& os)
+toString(stellar::ClaimOfferAtom const& coa)
+{
+    return xdr::xdr_to_string(coa);
+}
+
+template <>
+std::string
+toString(stellar::Hash const& tr)
+{
+    return xdr::xdr_to_string(tr);
+}
+
+template <>
+std::string
+toString(stellar::OfferEntry const& oe)
+{
+    return xdr::xdr_to_string(oe);
+}
+
+template <>
+std::string
+toString(stellar::OfferState const& os)
 {
     return fmt::format(
         "selling: {}, buying: {}, price: {}, amount: {}, type: {}",
@@ -18,16 +41,24 @@ StringMaker<stellar::OfferState>::convert(stellar::OfferState const& os)
         os.type == stellar::OfferType::PASSIVE ? "passive" : "active");
 }
 
+template <>
 std::string
-StringMaker<stellar::CatchupRange>::convert(stellar::CatchupRange const& cr)
+toString(stellar::TransactionResult const& tr)
+{
+    return xdr::xdr_to_string(tr);
+}
+
+template <>
+std::string
+toString(stellar::CatchupRange const& cr)
 {
     return fmt::format("[{}..{}], applyBuckets: {}", cr.first.first(),
                        cr.first.last(), cr.second);
 }
 
+template <>
 std::string
-StringMaker<stellar::historytestutils::CatchupPerformedWork>::convert(
-    stellar::historytestutils::CatchupPerformedWork const& cm)
+toString(stellar::historytestutils::CatchupPerformedWork const& cm)
 {
     return fmt::format("{}, {}, {}, {}, {}, {}, {}, {}",
                        cm.mHistoryArchiveStatesDownloaded,

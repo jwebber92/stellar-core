@@ -17,12 +17,12 @@
 #include "main/Config.h"
 #include "transactions/TransactionFrame.h"
 #include "util/Logging.h"
+#include "util/SociNoWarnings.h"
 #include "util/XDRStream.h"
+#include "util/make_unique.h"
 
 #include "medida/counter.h"
 #include "medida/metrics_registry.h"
-
-#include <soci.h>
 
 namespace stellar
 {
@@ -50,8 +50,7 @@ StateSnapshot::StateSnapshot(Application& app, HistoryArchiveState const& state)
 void
 StateSnapshot::makeLive()
 {
-    for (uint32_t i = 0;
-         i < static_cast<uint32>(mLocalState.currentBuckets.size()); i++)
+    for (auto i = 0; i < mLocalState.currentBuckets.size(); i++)
     {
         auto& hb = mLocalState.currentBuckets[i];
         if (hb.next.hasHashes() && !hb.next.isLive())
@@ -66,7 +65,7 @@ StateSnapshot::writeHistoryBlocks() const
 {
     std::unique_ptr<soci::session> snapSess(
         mApp.getDatabase().canUsePool()
-            ? std::make_unique<soci::session>(mApp.getDatabase().getPool())
+            ? make_unique<soci::session>(mApp.getDatabase().getPool())
             : nullptr);
     soci::session& sess(snapSess ? *snapSess : mApp.getDatabase().getSession());
     soci::transaction tx(sess);

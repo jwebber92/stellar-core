@@ -25,13 +25,17 @@
 #include "main/Application.h"
 #include "test/TestUtils.h"
 #include "test/test.h"
-#include "util/Decoder.h"
-#include "util/XDROperators.h"
 #include "work/WorkManager.h"
 #include <random>
+#include <util/basen.h>
 
 using namespace stellar;
 using namespace std::placeholders;
+
+namespace stellar
+{
+using xdr::operator<;
+}
 
 namespace BucketListIsConsistentWithDatabaseTests
 {
@@ -169,7 +173,7 @@ applyBucketsAndCrankUntilDone(Application::pointer appGenerate,
     getHistoryArchiveState(appGenerate, appApply, ledgerSeq, buckets, has);
 
     auto& wm = appApply->getWorkManager();
-    wm.executeWork<T>(buckets, has, std::forward<Args>(args)...);
+    wm.executeWork<T>(false, buckets, has, std::forward<Args>(args)...);
 }
 
 std::vector<EntryFrame::pointer>

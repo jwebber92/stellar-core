@@ -12,7 +12,7 @@
 #include "overlay/PeerRecord.h"
 #include "overlay/TCPPeer.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
+#include "util/make_unique.h"
 
 #include "medida/counter.h"
 #include "medida/meter.h"
@@ -50,10 +50,12 @@ namespace stellar
 using namespace soci;
 using namespace std;
 
+using xdr::operator<;
+
 std::unique_ptr<OverlayManager>
 OverlayManager::create(Application& app)
 {
-    return std::make_unique<OverlayManagerImpl>(app);
+    return make_unique<OverlayManagerImpl>(app);
 }
 
 OverlayManagerImpl::OverlayManagerImpl(Application& app)
@@ -237,17 +239,17 @@ OverlayManagerImpl::getPeersToConnectTo(int maxNum)
 
     std::vector<PeerRecord> peers;
 
-    PeerRecord::loadPeerRecords(
-        mApp.getDatabase(), batchSize, mApp.getClock().now(),
-        [&](PeerRecord const& pr) {
-            // skip peers that we're already
-            // connected/connecting to
-            if (!getConnectedPeer(pr.getAddress()))
-            {
-                peers.emplace_back(pr);
-            }
-            return peers.size() < static_cast<size_t>(maxNum);
-        });
+    PeerRecord::loadPeerRecords(mApp.getDatabase(), batchSize,
+                                mApp.getClock().now(),
+                                [&](PeerRecord const& pr) {
+                                    // skip peers that we're already
+                                    // connected/connecting to
+                                    if (!getConnectedPeer(pr.getAddress()))
+                                    {
+                                        peers.emplace_back(pr);
+                                    }
+                                    return peers.size() < maxNum;
+                                });
     return peers;
 }
 

@@ -66,8 +66,10 @@ PendingEnvelopes::addSCPQuorumSet(Hash hash, const SCPQuorumSet& q)
     CLOG(TRACE, "Herder") << "Add SCPQSet " << hexAbbrev(hash);
 
     SCPQuorumSetPtr qset(new SCPQuorumSet(q));
-    mNodesInQuorum.clear();
     mQsetCache.put(hash, qset);
+
+    // force recomputation of transitive quorum information
+    mNodesInQuorum.clear();
 
     mQuorumSetFetcher.recv(hash);
 }
@@ -452,10 +454,10 @@ PendingEnvelopes::getQSet(Hash const& hash)
     return SCPQuorumSetPtr();
 }
 
-Json::Value
-PendingEnvelopes::getJsonInfo(size_t limit)
+void
+PendingEnvelopes::dumpInfo(Json::Value& ret, size_t limit)
 {
-    Json::Value ret;
+    Json::Value& q = ret["queue"];
 
     {
         auto it = mEnvelopes.rbegin();
@@ -464,7 +466,7 @@ PendingEnvelopes::getJsonInfo(size_t limit)
         {
             if (it->second.mFetchingEnvelopes.size() != 0)
             {
-                Json::Value& slot = ret[std::to_string(it->first)]["fetching"];
+                Json::Value& slot = q[std::to_string(it->first)]["fetching"];
                 for (auto const& e : it->second.mFetchingEnvelopes)
                 {
                     slot.append(mHerder.getSCP().envToStr(e));
@@ -472,7 +474,7 @@ PendingEnvelopes::getJsonInfo(size_t limit)
             }
             if (it->second.mReadyEnvelopes.size() != 0)
             {
-                Json::Value& slot = ret[std::to_string(it->first)]["pending"];
+                Json::Value& slot = q[std::to_string(it->first)]["pending"];
                 for (auto const& e : it->second.mReadyEnvelopes)
                 {
                     slot.append(mHerder.getSCP().envToStr(e));
@@ -481,6 +483,5 @@ PendingEnvelopes::getJsonInfo(size_t limit)
             it++;
         }
     }
-    return ret;
 }
 }

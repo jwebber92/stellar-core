@@ -29,6 +29,7 @@
 #include "util/Logging.h"
 #include "util/TmpDir.h"
 #include "util/XDRStream.h"
+#include "util/make_unique.h"
 #include "xdrpp/message.h"
 #include <cassert>
 #include <future>

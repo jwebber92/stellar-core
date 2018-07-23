@@ -4,7 +4,6 @@
 #include "herder/Upgrades.h"
 #include "main/Application.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include <overlay/OverlayManager.h>
 #include <xdrpp/marshal.h>
 
@@ -20,6 +19,7 @@ LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq, TxSetFramePtr txSet,
     Value x;
     Value y(x.begin(), x.end());
 
+    using xdr::operator==;
     assert(txSet->getContentsHash() == mValue.txSetHash);
 }
 

@@ -5,7 +5,6 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "crypto/KeyUtils.h"
-#include "util/XDROperators.h"
 #include "xdr/Stellar-types.h"
 
 #include <array>
@@ -14,6 +13,8 @@
 
 namespace stellar
 {
+
+using xdr::operator==;
 
 class ByteSlice;
 struct SecretValue;
@@ -24,7 +25,6 @@ class SecretKey
     using uint512 = xdr::opaque_array<64>;
     PublicKeyType mKeyType;
     uint512 mSecretKey;
-    PublicKey mPublicKey;
 
     struct Seed
     {
@@ -41,7 +41,7 @@ class SecretKey
     ~SecretKey();
 
     // Get the public key portion of this secret key.
-    PublicKey const& getPublicKey() const;
+    PublicKey getPublicKey() const;
 
     // Get the seed portion of this secret key as a StrKey string.
     SecretValue getStrKeySeed() const;
@@ -73,7 +73,7 @@ class SecretKey
     static SecretKey fromSeed(ByteSlice const& seed);
 
     bool
-    operator==(SecretKey const& rh) const
+    operator==(SecretKey const& rh)
     {
         return (mKeyType == rh.mKeyType) && (mSecretKey == rh.mSecretKey);
     }

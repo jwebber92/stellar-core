@@ -35,7 +35,6 @@ class LedgerHeaderFrame
     Hash const& getHash() const;
 
     // returns the first sequence number to use for new accounts
-    static SequenceNumber getStartingSequenceNumber(uint32 ledgerSeq);
     SequenceNumber getStartingSequenceNumber() const;
 
     // methods to generate IDs
