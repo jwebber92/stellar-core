@@ -25,7 +25,6 @@ namespace medida
 {
 class Timer;
 class Counter;
-class Histogram;
 }
 
 namespace stellar
@@ -41,7 +40,6 @@ class LedgerManagerImpl : public LedgerManager
 
     Application& mApp;
     medida::Timer& mTransactionApply;
-    medida::Histogram& mTransactionCount;
     medida::Timer& mLedgerClose;
     medida::Timer& mLedgerAgeClosed;
     medida::Counter& mLedgerAge;
@@ -53,16 +51,6 @@ class LedgerManagerImpl : public LedgerManager
     medida::Counter& mSyncingLedgersSize;
 
     SyncingLedgerChain mSyncingLedgers;
-    uint32_t mCatchupTriggerLedger{0};
-
-    CatchupState mCatchupState{CatchupState::NONE};
-
-    void initializeCatchup(LedgerCloseData const& ledgerData);
-    void continueCatchup(LedgerCloseData const& ledgerData);
-    void finalizeCatchup(LedgerCloseData const& ledgerData);
-
-    void addToSyncingLedgers(LedgerCloseData const& ledgerData);
-    void startCatchupIf(uint32_t lastReceivedLedgerSeq);
 
     void historyCaughtup(asio::error_code const& ec,
                          CatchupWork::ProgressState progressState,
@@ -78,24 +66,13 @@ class LedgerManagerImpl : public LedgerManager
     void storeCurrentLedger();
     void advanceLedgerPointers();
 
-    enum class CloseLedgerIfResult
-    {
-        CLOSED,
-        TOO_OLD,
-        TOO_NEW
-    };
-    CloseLedgerIfResult closeLedgerIf(LedgerCloseData const& ledgerData);
-
     State mState;
-    void setState(State s);
-    void setCatchupState(CatchupState s);
 
   public:
     LedgerManagerImpl(Application& app);
 
-    void bootstrap() override;
+    void setState(State s) override;
     State getState() const override;
-    CatchupState getCatchupState() const override;
     std::string getStateHuman() const override;
 
     void valueExternalized(LedgerCloseData const& ledgerData) override;
@@ -121,7 +98,7 @@ class LedgerManagerImpl : public LedgerManager
 
     Database& getDatabase() override;
 
-    void startCatchup(CatchupConfiguration configuration,
+    void startCatchUp(CatchupConfiguration configuration,
                       bool manualCatchup) override;
 
     HistoryManager::LedgerVerificationStatus

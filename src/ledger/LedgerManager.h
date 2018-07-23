@@ -62,17 +62,8 @@ class LedgerManager
         LM_NUM_STATE
     };
 
-    enum class CatchupState
-    {
-        NONE,
-        WAITING_FOR_TRIGGER_LEDGER,
-        APPLYING_HISTORY,
-        WAITING_FOR_CLOSING_LEDGER
-    };
-
-    virtual void bootstrap() = 0;
+    virtual void setState(State s) = 0;
     virtual State getState() const = 0;
-    virtual CatchupState getCatchupState() const = 0;
     virtual std::string getStateHuman() const = 0;
 
     bool
@@ -159,7 +150,7 @@ class LedgerManager
     // LedgerManager detects it is desynchronized from SCP's consensus ledger.
     // This method is present in the public interface to permit testing and
     // command line catchups.
-    virtual void startCatchup(CatchupConfiguration configuration,
+    virtual void startCatchUp(CatchupConfiguration configuration,
                               bool manualCatchup) = 0;
 
     // Called by the history subsystem during catchup: this method asks the

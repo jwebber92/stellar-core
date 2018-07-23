@@ -7,7 +7,6 @@
 #include "TxSetFrame.h"
 #include "Upgrades.h"
 #include "lib/json/json-forwards.h"
-#include "overlay/Peer.h"
 #include "overlay/StellarXDR.h"
 #include "scp/SCP.h"
 #include "util/Timer.h"
@@ -18,7 +17,10 @@
 namespace stellar
 {
 class Application;
+class Peer;
 class XDROutputFileStream;
+
+typedef std::shared_ptr<Peer> PeerPtr;
 
 /*
  * Public Interface to the Herder module
@@ -53,9 +55,6 @@ class Herder
     // How many ledgers in the past we keep track of
     static uint32 const MAX_SLOTS_TO_REMEMBER;
 
-    // Threshold used to filter out irrelevant events.
-    static std::chrono::nanoseconds const TIMERS_THRESHOLD_NANOSEC;
-
     static std::unique_ptr<Herder> create(Application& app);
 
     enum State
@@ -72,8 +71,6 @@ class Herder
         TX_STATUS_ERROR,
         TX_STATUS_COUNT
     };
-
-    static const char* TX_STATUS_STRING[TX_STATUS_COUNT];
 
     enum EnvelopeStatus
     {
@@ -107,7 +104,7 @@ class Herder
     // We are learning about a new transaction.
     virtual TransactionSubmitStatus recvTransaction(TransactionFramePtr tx) = 0;
     virtual void peerDoesntHave(stellar::MessageType type,
-                                uint256 const& itemID, Peer::pointer peer) = 0;
+                                uint256 const& itemID, PeerPtr peer) = 0;
     virtual TxSetFramePtr getTxSet(Hash const& hash) = 0;
     virtual SCPQuorumSetPtr getQSet(Hash const& qSetHash) = 0;
 
@@ -120,7 +117,7 @@ class Herder
                                            TxSetFrame txset) = 0;
 
     // a peer needs our SCP state
-    virtual void sendSCPStateToPeer(uint32 ledgerSeq, Peer::pointer peer) = 0;
+    virtual void sendSCPStateToPeer(uint32 ledgerSeq, PeerPtr peer) = 0;
 
     // returns the latest known ledger seq using consensus information
     // and local state
@@ -144,8 +141,8 @@ class Herder
     {
     }
 
-    virtual Json::Value getJsonInfo(size_t limit) = 0;
-    virtual Json::Value getJsonQuorumInfo(NodeID const& id, bool summary,
-                                          uint64 index = 0) = 0;
+    virtual void dumpInfo(Json::Value& ret, size_t limit) = 0;
+    virtual void dumpQuorumInfo(Json::Value& ret, NodeID const& id,
+                                bool summary, uint64 index = 0) = 0;
 };
 }

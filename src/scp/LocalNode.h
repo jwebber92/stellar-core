@@ -99,7 +99,7 @@ class LocalNode
             [](SCPStatement const&) { return true; },
         NodeID const* excluded = nullptr);
 
-    Json::Value toJson(SCPQuorumSet const& qSet) const;
+    void toJson(SCPQuorumSet const& qSet, Json::Value& value) const;
     std::string to_string(SCPQuorumSet const& qSet) const;
 
   protected:

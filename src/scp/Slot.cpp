@@ -10,7 +10,7 @@
 #include "scp/LocalNode.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
+#include "util/make_unique.h"
 #include "util/types.h"
 #include "xdrpp/marshal.h"
 #include <ctime>
@@ -18,6 +18,8 @@
 
 namespace stellar
 {
+using xdr::operator==;
+using xdr::operator<;
 using namespace std::placeholders;
 
 Slot::Slot(uint64 slotIndex, SCP& scp)
@@ -130,7 +132,10 @@ Slot::processEnvelope(SCPEnvelope const& envelope, bool self)
     }
     catch (...)
     {
-        auto info = getJsonInfo();
+        Json::Value info;
+
+        dumpInfo(info);
+
         CLOG(ERROR, "SCP") << "Exception in processEnvelope "
                            << "state: " << info.toStyledString()
                            << " processing envelope: "
@@ -289,16 +294,19 @@ Slot::getQuorumSetFromStatement(SCPStatement const& st)
     return res;
 }
 
-Json::Value
-Slot::getJsonInfo()
+void
+Slot::dumpInfo(Json::Value& ret)
 {
-    Json::Value ret;
+    auto& slots = ret["slots"];
+
+    Json::Value& slotValue = slots[std::to_string(mSlotIndex)];
+
     std::map<Hash, SCPQuorumSetPtr> qSetsUsed;
 
     int count = 0;
     for (auto const& item : mStatementsHistory)
     {
-        Json::Value& v = ret["statements"][count++];
+        Json::Value& v = slotValue["statements"][count++];
         v.append((Json::UInt64)item.mWhen);
         v.append(mSCP.envToStr(item.mStatement));
         v.append(item.mValidated);
@@ -312,23 +320,23 @@ Slot::getJsonInfo()
         }
     }
 
-    auto& qSets = ret["quorum_sets"];
+    auto& qSets = slotValue["quorum_sets"];
     for (auto const& q : qSetsUsed)
     {
-        qSets[hexAbbrev(q.first)] = getLocalNode()->toJson(*q.second);
+        auto& qs = qSets[hexAbbrev(q.first)];
+        getLocalNode()->toJson(*q.second, qs);
     }
 
-    ret["validated"] = mFullyValidated;
-    ret["nomination"] = mNominationProtocol.getJsonInfo();
-    ret["ballotProtocol"] = mBallotProtocol.getJsonInfo();
-
-    return ret;
+    slotValue["validated"] = mFullyValidated;
+    mNominationProtocol.dumpInfo(slotValue);
+    mBallotProtocol.dumpInfo(slotValue);
 }
 
-Json::Value
-Slot::getJsonQuorumInfo(NodeID const& id, bool summary)
+void
+Slot::dumpQuorumInfo(Json::Value& ret, NodeID const& id, bool summary)
 {
-    return mBallotProtocol.getJsonQuorumInfo(id, summary);
+    std::string i = std::to_string(static_cast<uint32>(mSlotIndex));
+    mBallotProtocol.dumpQuorumInfo(ret[i], id, summary);
 }
 
 bool
@@ -344,7 +352,7 @@ Slot::federatedAccept(StatementPredicate voted, StatementPredicate accepted,
 
     // Checks if the set of nodes that accepted or voted for it form a quorum
 
-    auto ratifyFilter = [&](SCPStatement const& st) {
+    auto ratifyFilter = [this, &voted, &accepted](SCPStatement const& st) {
         bool res;
         res = accepted(st) || voted(st);
         return res;

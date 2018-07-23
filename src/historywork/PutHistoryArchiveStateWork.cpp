@@ -13,7 +13,7 @@ namespace stellar
 
 PutHistoryArchiveStateWork::PutHistoryArchiveStateWork(
     Application& app, WorkParent& parent, HistoryArchiveState const& state,
-    std::shared_ptr<HistoryArchive> archive)
+    std::shared_ptr<HistoryArchive const> archive)
     : Work(app, parent, "put-history-archive-state")
     , mState(state)
     , mArchive(archive)

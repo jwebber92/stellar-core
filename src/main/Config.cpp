@@ -6,7 +6,6 @@
 #include "main/Config.h"
 #include "crypto/Hex.h"
 #include "crypto/KeyUtils.h"
-#include "herder/Herder.h"
 #include "history/HistoryArchive.h"
 #include "ledger/LedgerManager.h"
 #include "main/ExternalQueue.h"
@@ -14,27 +13,17 @@
 #include "scp/LocalNode.h"
 #include "util/Fs.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include "util/types.h"
 
 #include <functional>
 #include <lib/util/format.h>
 #include <sstream>
-#include <unordered_set>
 
 namespace stellar
 {
-const uint32 Config::CURRENT_LEDGER_PROTOCOL_VERSION = 10;
+using xdr::operator<;
 
-// Options that must only be used for testing
-static const std::unordered_set<std::string> TESTING_ONLY_OPTIONS = {
-    "RUN_STANDALONE", "MANUAL_CLOSE", "ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING",
-    "ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING",
-    "ARTIFICIALLY_SET_CLOSE_TIME_FOR_TESTING"};
-
-// Options that should only be used for testing
-static const std::unordered_set<std::string> TESTING_SUGGESTED_OPTIONS = {
-    "ALLOW_LOCALHOST_FOR_TESTING"};
+const uint32 Config::CURRENT_LEDGER_PROTOCOL_VERSION = 9;
 
 Config::Config() : NODE_SEED(SecretKey::random())
 {
@@ -44,8 +33,8 @@ Config::Config() : NODE_SEED(SecretKey::random())
     FORCE_SCP = false;
     LEDGER_PROTOCOL_VERSION = CURRENT_LEDGER_PROTOCOL_VERSION;
 
-    OVERLAY_PROTOCOL_MIN_VERSION = 6;
-    OVERLAY_PROTOCOL_VERSION = 7;
+    OVERLAY_PROTOCOL_MIN_VERSION = 5;
+    OVERLAY_PROTOCOL_VERSION = 6;
 
     VERSION_STR = STELLAR_CORE_VERSION;
 
@@ -257,19 +246,6 @@ Config::load(std::string const& filename)
         for (auto& item : g)
         {
             LOG(DEBUG) << "Config item: " << item.first;
-            if (TESTING_ONLY_OPTIONS.count(item.first) > 0)
-            {
-                LOG(INFO) << item.first
-                          << " enabled in configuration file - node will not "
-                             "function properly with most networks";
-            }
-            else if (TESTING_SUGGESTED_OPTIONS.count(item.first) > 0)
-            {
-                LOG(INFO) << item.first
-                          << " enabled in configuration file - node may not "
-                             "be configured for production use";
-            }
-
             if (item.first == "PEER_PORT")
             {
                 PEER_PORT = readInt<unsigned short>(item, 1, UINT16_MAX);
@@ -479,8 +455,9 @@ Config::load(std::string const& filename)
                                 throw std::invalid_argument(err);
                             }
                         }
-                        HISTORY[archive.first] = HistoryArchiveConfiguration{
-                            archive.first, get, put, mkdir};
+                        HISTORY[archive.first] =
+                            std::make_shared<HistoryArchive>(archive.first, get,
+                                                             put, mkdir);
                     }
                 }
                 else
@@ -598,14 +575,11 @@ Config::validateConfig()
         auto topLevelCount =
             QUORUM_SET.validators.size() + QUORUM_SET.innerSets.size();
         FAILURE_SAFETY = (static_cast<uint32>(topLevelCount) - 1) / 3;
-
-        LOG(INFO) << "Assigning calculated value of " << FAILURE_SAFETY
-                  << " to FAILURE_SAFETY";
     }
 
     try
     {
-        if (FAILURE_SAFETY >= static_cast<int32_t>(r.size()))
+        if (FAILURE_SAFETY >= r.size())
         {
             LOG(ERROR) << "Not enough nodes / thresholds too strict in your "
                           "Quorum set to ensure your desired level of "
@@ -809,19 +783,5 @@ Config::expandNodeID(const std::string& s) const
     {
         return {};
     }
-}
-
-std::chrono::seconds
-Config::getExpectedLedgerCloseTime() const
-{
-    if (ARTIFICIALLY_SET_CLOSE_TIME_FOR_TESTING)
-    {
-        return std::chrono::seconds{ARTIFICIALLY_SET_CLOSE_TIME_FOR_TESTING};
-    }
-    if (ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING)
-    {
-        return std::chrono::seconds{1};
-    }
-    return Herder::EXP_LEDGER_TIMESPAN_SECONDS;
 }
 }

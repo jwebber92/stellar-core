@@ -29,14 +29,14 @@ class WorkManager : public WorkParent
 
     template <typename T, typename... Args>
     std::shared_ptr<T>
-    executeWork(Args&&... args)
+    executeWork(bool block, Args&&... args)
     {
         auto work = addWork<T>(std::forward<Args>(args)...);
         auto& clock = mApp.getClock();
         advanceChildren();
         while (!clock.getIOService().stopped() && !allChildrenDone())
         {
-            clock.crank(true);
+            clock.crank(block);
         }
         return work;
     }

@@ -201,9 +201,6 @@
     <ClCompile Include="..\..\src\util\types.cpp">
       <Filter>util</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\util\MetricResetter.cpp">
-      <Filter>util</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\util\Logging.cpp">
       <Filter>util</Filter>
     </ClCompile>
@@ -309,7 +306,7 @@
     <ClCompile Include="..\..\src\transactions\TxEnvelopeTests.cpp">
       <Filter>transactions\tests</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\lib\asio.cpp">
+    <ClCompile Include="..\..\lib\asio\src\asio.cpp">
       <Filter>lib</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\bucket\BucketManagerImpl.cpp">
@@ -398,6 +395,9 @@
     </ClCompile>
     <ClCompile Include="..\..\src\util\Fs.cpp">
       <Filter>util</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\ledger\LedgerPerformanceTests.cpp">
+      <Filter>ledger\tests</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\util\GlobalChecks.cpp">
       <Filter>util</Filter>
@@ -738,9 +738,6 @@
     <ClCompile Include="..\..\src\history\HistoryArchive.cpp">
       <Filter>history</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\history\HistoryArchiveManager.cpp">
-      <Filter>history</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\history\HistoryManagerImpl.cpp">
       <Filter>history</Filter>
     </ClCompile>
@@ -857,18 +854,6 @@
     </ClCompile>
     <ClCompile Include="..\..\src\overlay\PeerBareAddress.cpp">
       <Filter>overlay</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\transactions\BumpSequenceTests.cpp">
-      <Filter>transactions\tests</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\transactions\BumpSequenceOpFrame.cpp">
-      <Filter>transactions</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\overlay\PeerSharedKeyId.cpp">
-      <Filter>overlay</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\overlay\LoadManagerTests.cpp">
-      <Filter>overlay\tests</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -1017,9 +1002,6 @@
       <Filter>lib\util</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\util\Logging.h">
-      <Filter>util</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\util\MetricResetter.h">
       <Filter>util</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\util\make_unique.h">
@@ -1415,9 +1397,6 @@
     <ClInclude Include="..\..\src\history\HistoryArchive.h">
       <Filter>history</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\history\HistoryArchiveManager.h">
-      <Filter>history</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\history\HistoryManager.h">
       <Filter>history</Filter>
     </ClInclude>
@@ -1487,16 +1466,10 @@
     <ClInclude Include="..\..\src\database\DatabaseUtils.h">
       <Filter>database</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\transactions\BumpSequenceOpFrame.h">
-      <Filter>transactions</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\main\StellarCoreVersion.h">
       <Filter>main</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\overlay\PeerBareAddress.h">
-      <Filter>overlay</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\overlay\PeerSharedKeyId.h">
       <Filter>overlay</Filter>
     </ClInclude>
   </ItemGroup>
@@ -1588,8 +1561,7 @@
     <None Include="..\..\CONTRIBUTING.md" />
     <None Include="..\..\README" />
     <None Include="..\..\travis-build.sh" />
-    <None Include="..\..\.github\ISSUE_TEMPLATE.md" />
-    <None Include="..\..\.github\PULL_REQUEST_TEMPLATE.md" />
+    <None Include="..\..\ISSUE_TEMPLATE.md" />
     <None Include="..\..\src\history\readme.md">
       <Filter>history</Filter>
     </None>
@@ -1599,7 +1571,6 @@
     <None Include="..\..\src\history\serialize-tests\stellar-history.testnet.6714239.json">
       <Filter>history\tests\serialize-tests</Filter>
     </None>
-    <None Include="..\..\performance-eval.md" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\..\src\xdr\Stellar-ledger.x">

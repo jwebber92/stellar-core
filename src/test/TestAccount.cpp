@@ -2,13 +2,13 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "test/TestAccount.h"
+#include "TestAccount.h"
+
 #include "ledger/DataFrame.h"
+#include "lib/catch.hpp"
 #include "main/Application.h"
 #include "test/TestExceptions.h"
 #include "test/TxTests.h"
-
-#include <lib/catch.hpp>
 
 namespace stellar
 {
@@ -16,22 +16,17 @@ namespace stellar
 using namespace txtest;
 
 SequenceNumber
-TestAccount::loadSequenceNumber()
+TestAccount::loadSequenceNumber() const
 {
-    mSn = 0;
-    return getLastSequenceNumber();
+    return loadAccount(getPublicKey(), mApp)->getSeqNum();
 }
 
 void
 TestAccount::updateSequenceNumber()
 {
-    if (mSn == 0)
+    if (mSn == 0 && loadAccount(getPublicKey(), mApp, false))
     {
-        auto a = loadAccount(getPublicKey(), mApp, false);
-        if (a)
-        {
-            mSn = a->getSeqNum();
-        }
+        mSn = loadSequenceNumber();
     }
 }
 
@@ -39,12 +34,6 @@ int64_t
 TestAccount::getBalance() const
 {
     return loadAccount(getPublicKey(), mApp)->getBalance();
-}
-
-bool
-TestAccount::exists() const
-{
-    return loadAccount(getPublicKey(), mApp, false) != nullptr;
 }
 
 TransactionFramePtr
@@ -158,9 +147,13 @@ TestAccount::hasTrustLine(Asset const& asset) const
 }
 
 void
-TestAccount::setOptions(SetOptionsArguments const& arguments)
+TestAccount::setOptions(AccountID* inflationDest, uint32_t* setFlags,
+                        uint32_t* clearFlags, ThresholdSetter* thrs,
+                        Signer* signer, std::string* homeDomain)
 {
-    applyTx(tx({txtest::setOptions(arguments)}), mApp);
+    applyTx(tx({txtest::setOptions(inflationDest, setFlags, clearFlags, thrs,
+                                   signer, homeDomain)}),
+            mApp);
 }
 
 void
@@ -179,12 +172,6 @@ TestAccount::manageData(std::string const& name, DataValue* value)
     {
         REQUIRE(dataFrame == nullptr);
     }
-}
-
-void
-TestAccount::bumpSequence(SequenceNumber to)
-{
-    applyTx(tx({txtest::bumpSequence(to)}), mApp, false);
 }
 
 OfferEntry
@@ -235,8 +222,7 @@ TestAccount::pay(PublicKey const& destination, int64_t amount)
         auto toAccountAfter = loadAccount(destination, mApp, false);
         // check that the target account didn't change
         REQUIRE(!!toAccount == !!toAccountAfter);
-        if (toAccount && toAccountAfter &&
-            !(fromAccount->getID() == toAccount->getID()))
+        if (toAccount && toAccountAfter)
         {
             REQUIRE(toAccount->getAccount() == toAccountAfter->getAccount());
         }

@@ -8,7 +8,6 @@
 #include "main/Config.h"
 #include "main/PersistentState.h"
 #include "medida/timer_context.h"
-#include "util/MetricResetter.h"
 #include "util/Timer.h"
 #include <thread>
 
@@ -51,12 +50,10 @@ class ApplicationImpl : public Application
     virtual medida::MetricsRegistry& getMetrics() override;
     virtual void syncOwnMetrics() override;
     virtual void syncAllMetrics() override;
-    virtual void clearMetrics(std::string const& domain) override;
     virtual TmpDirManager& getTmpDirManager() override;
     virtual LedgerManager& getLedgerManager() override;
     virtual BucketManager& getBucketManager() override;
     virtual CatchupManager& getCatchupManager() override;
-    virtual HistoryArchiveManager& getHistoryArchiveManager() override;
     virtual HistoryManager& getHistoryManager() override;
     virtual Maintainer& getMaintainer() override;
     virtual ProcessManager& getProcessManager() override;
@@ -89,9 +86,8 @@ class ApplicationImpl : public Application
 
     virtual bool manualClose() override;
 
-    virtual void generateLoad(bool isCreate, uint32_t nAccounts,
-                              uint32_t offset, uint32_t nTxs, uint32_t txRate,
-                              uint32_t batchSize, bool autoRate) override;
+    virtual void generateLoad(uint32_t nAccounts, uint32_t nTxs,
+                              uint32_t txRate, bool autoRate) override;
 
     virtual LoadGenerator& getLoadGenerator() override;
 
@@ -136,7 +132,6 @@ class ApplicationImpl : public Application
     std::unique_ptr<BucketManager> mBucketManager;
     std::unique_ptr<CatchupManager> mCatchupManager;
     std::unique_ptr<HerderPersistence> mHerderPersistence;
-    std::unique_ptr<HistoryArchiveManager> mHistoryArchiveManager;
     std::unique_ptr<HistoryManager> mHistoryManager;
     std::unique_ptr<InvariantManager> mInvariantManager;
     std::unique_ptr<Maintainer> mMaintainer;

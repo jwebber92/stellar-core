@@ -62,12 +62,9 @@ transaction; therefore this is really a best effort implementation specific.
 ## Applying a transaction
 
 When SCP externalizes the transaction set to apply to the last closed ledger:
-1. the Source accounts for all transactions are charged a fee
-2. transactions are applied one by one, checking and updating the account's
-   sequence number.
-
-note that in earlier versions of the protocol (9 and below), the sequence
- number was updated at the same time than when the fee was charged.
+Source Accounts for transactions are charged a fee and their sequence number
+is updated. 
+Then, the transactions are applied one by one.
 
 To apply a transaction, it first checks for part __A__ of the validity check.
 

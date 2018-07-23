@@ -4,7 +4,6 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "bucket/BucketList.h"
 #include "herder/LedgerCloseData.h"
 #include "main/Application.h"
 #include "main/Config.h"
@@ -29,7 +28,6 @@ struct CatchupPerformedWork;
 class HistoryConfigurator : NonCopyable
 {
   public:
-    virtual ~HistoryConfigurator() = default;
     virtual Config& configure(Config& cfg, bool writable) const = 0;
     virtual std::string getArchiveDirName() const;
 };
@@ -112,7 +110,6 @@ class CatchupSimulation
     std::vector<Config> mCfgs;
     Application::pointer mAppPtr;
     Application& mApp;
-    BucketList mBucketListAtLastPublish;
 
     std::default_random_engine mGenerator;
     std::bernoulli_distribution mFlip{0.5};
@@ -134,9 +131,6 @@ class CatchupSimulation
     std::vector<SequenceNumber> aliceSeqs;
     std::vector<SequenceNumber> bobSeqs;
     std::vector<SequenceNumber> carolSeqs;
-
-    void crankForAtMost(Application::pointer app,
-                        VirtualClock::duration duration);
 
   public:
     explicit CatchupSimulation(
@@ -162,12 +156,7 @@ class CatchupSimulation
         return *mHistoryConfigurator.get();
     }
 
-    BucketList
-    getBucketListAtLastPublish() const
-    {
-        return mBucketListAtLastPublish;
-    }
-
+    void crankTillDone();
     void generateRandomLedger();
     void generateAndPublishHistory(size_t nPublishes);
     void generateAndPublishInitialHistory(size_t nPublishes);

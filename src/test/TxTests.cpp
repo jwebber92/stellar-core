@@ -2,19 +2,19 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "test/TxTests.h"
+#include "TxTests.h"
+
 #include "crypto/ByteSlice.h"
-#include "crypto/SignerKey.h"
 #include "database/Database.h"
 #include "invariant/InvariantManager.h"
 #include "ledger/DataFrame.h"
 #include "ledger/LedgerDelta.h"
+#include "lib/catch.hpp"
 #include "main/Application.h"
 #include "test/TestExceptions.h"
 #include "test/TestUtils.h"
 #include "test/test.h"
 #include "transactions/AllowTrustOpFrame.h"
-#include "transactions/BumpSequenceOpFrame.h"
 #include "transactions/ChangeTrustOpFrame.h"
 #include "transactions/CreateAccountOpFrame.h"
 #include "transactions/InflationOpFrame.h"
@@ -26,10 +26,8 @@
 #include "transactions/SetOptionsOpFrame.h"
 #include "transactions/TransactionFrame.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
+#include "util/make_unique.h"
 #include "util/types.h"
-
-#include <lib/catch.hpp>
 
 using namespace stellar;
 using namespace stellar::txtest;
@@ -37,146 +35,54 @@ using namespace stellar::txtest;
 typedef std::unique_ptr<Application> appPtr;
 namespace stellar
 {
+using xdr::operator==;
+
 namespace txtest
 {
 
-ExpectedOpResult::ExpectedOpResult(OperationResultCode code) : code{code}
-{
-}
-ExpectedOpResult::ExpectedOpResult(CreateAccountResultCode createAccountCode)
-    : code{opINNER}, type{CREATE_ACCOUNT}, createAccountCode{createAccountCode}
-{
-}
-ExpectedOpResult::ExpectedOpResult(PaymentResultCode paymentCode)
-    : code{opINNER}, type{PAYMENT}, paymentCode{paymentCode}
-{
-}
-ExpectedOpResult::ExpectedOpResult(AccountMergeResultCode accountMergeCode)
-    : code{opINNER}, type{ACCOUNT_MERGE}, accountMergeCode{accountMergeCode}
-{
-}
-ExpectedOpResult::ExpectedOpResult(SetOptionsResultCode setOptionsResultCode)
-    : code{opINNER}
-    , type{SET_OPTIONS}
-    , setOptionsResultCode{setOptionsResultCode}
-{
-}
-
-TransactionResult
-expectedResult(int64_t fee, size_t opsCount, TransactionResultCode code,
-               std::vector<ExpectedOpResult> ops)
-{
-    auto result = TransactionResult{};
-    result.feeCharged = fee;
-    result.result.code(code);
-    if (code != txSUCCESS && code != txFAILED)
-    {
-        return result;
-    }
-    if (ops.empty())
-    {
-        std::fill_n(std::back_inserter(ops), opsCount, PAYMENT_SUCCESS);
-    }
-
-    result.result.results().resize(static_cast<uint32_t>(ops.size()));
-    for (size_t i = 0; i < ops.size(); i++)
-    {
-        auto& r = result.result.results()[i];
-        auto& o = ops[i];
-        r.code(o.code);
-        if (o.code == opINNER)
-        {
-            r.tr().type(o.type);
-            switch (o.type)
-            {
-            case CREATE_ACCOUNT:
-                r.tr().createAccountResult().code(o.createAccountCode);
-                break;
-            case PAYMENT:
-                r.tr().paymentResult().code(o.paymentCode);
-                break;
-            case ACCOUNT_MERGE:
-                r.tr().accountMergeResult().code(o.accountMergeCode);
-                break;
-            case SET_OPTIONS:
-                r.tr().setOptionsResult().code(o.setOptionsResultCode);
-                break;
-            default:
-                break;
-            }
-        }
-    }
-
-    return result;
-}
-
 bool
-applyCheck(TransactionFramePtr tx, Application& app, bool checkSeqNum)
+applyCheck(TransactionFramePtr tx, Application& app)
 {
     app.getDatabase().clearPreparedStatementCache();
 
     LedgerDelta delta(app.getLedgerManager().getCurrentLedgerHeader(),
                       app.getDatabase());
 
-    AccountEntry srcAccountBefore;
+    auto txSet = std::make_shared<TxSetFrame>(
+        app.getLedgerManager().getLastClosedLedgerHeader().hash);
+    txSet->add(tx);
+
+    // TODO: maybe we should just close ledger with tx instead of checking all
+    // of
+    // that manually?
 
     bool check = tx->checkValid(app, 0);
     TransactionResult checkResult = tx->getResult();
 
     REQUIRE((!check || checkResult.result.code() == txSUCCESS));
 
-    // now, check what happens when simulating what happens during a ledger
-    // close and reconcile it with the return value of "apply" with the one from
-    // checkValid:
-    // * an invalid (as per isValid) tx is still invalid during apply (and the
-    // same way)
-    // * a valid tx can fail later
-    auto code = checkResult.result.code();
-    if (code != txNO_ACCOUNT)
+    bool doApply;
+    // valid transaction sets ensure that
     {
-        auto acnt = loadAccount(tx->getSourceID(), app, true);
-        srcAccountBefore = acnt->getAccount();
-
-        // no account -> can't process the fee
-        tx->processFeeSeqNum(delta, app.getLedgerManager());
-
-        // verify that the fee got processed
-        auto added = delta.added();
-        REQUIRE(added.begin() == added.end());
-        auto deleted = delta.deleted();
-        REQUIRE(deleted.begin() == deleted.end());
-        auto modified = delta.modified();
-        REQUIRE(modified.begin() != modified.end());
-        int modifiedCount = 0;
-        for (auto m : modified)
+        auto code = checkResult.result.code();
+        if (code != txNO_ACCOUNT && code != txBAD_SEQ && code != txBAD_AUTH)
         {
-            modifiedCount++;
-            REQUIRE(modifiedCount == 1);
-            REQUIRE(m.key.account().accountID == tx->getSourceID());
-            auto& prevAccount = m.previous->mEntry.data.account();
-            REQUIRE(prevAccount == srcAccountBefore);
-            auto curAccount = m.current->mEntry.data.account();
-            // the balance should have changed
-            REQUIRE(curAccount.balance < prevAccount.balance);
-            curAccount.balance = prevAccount.balance;
-            if (app.getLedgerManager().getCurrentLedgerVersion() <= 9)
-            {
-                // v9 and below, we also need to verify that the sequence number
-                // also got processed at this time
-                REQUIRE(curAccount.seqNum == (prevAccount.seqNum + 1));
-                curAccount.seqNum = prevAccount.seqNum;
-            }
-            REQUIRE(curAccount == prevAccount);
+            tx->processFeeSeqNum(delta, app.getLedgerManager());
+            doApply = true;
+        }
+        else
+        {
+            doApply = (code != txBAD_SEQ);
         }
     }
 
     bool res = false;
 
+    if (doApply)
     {
-        LedgerDelta applyDelta(delta);
         try
         {
-            res = tx->apply(applyDelta, app);
+            res = tx->apply(delta, app);
         }
         catch (...)
         {
@@ -185,77 +91,14 @@ applyCheck(TransactionFramePtr tx, Application& app, bool checkSeqNum)
 
         REQUIRE((!res || tx->getResultCode() == txSUCCESS));
 
-        // checks that the failure is the same if pre checks failed
         if (!check)
         {
-            if (tx->getResultCode() != txFAILED)
-            {
-                REQUIRE(checkResult == tx->getResult());
-            }
-            else
-            {
-                auto const& txResults = tx->getResult().result.results();
-                auto const& checkResults = checkResult.result.results();
-                for (auto i = 0u; i < txResults.size(); i++)
-                {
-                    REQUIRE(checkResults[i] == txResults[i]);
-                    if (checkResults[i].code() == opBAD_AUTH)
-                    {
-                        // results may not match after first opBAD_AUTH
-                        break;
-                    }
-                }
-            }
+            REQUIRE(checkResult == tx->getResult());
         }
-
-        if (code != txNO_ACCOUNT)
-        {
-            auto srcAccountAfter =
-                txtest::loadAccount(srcAccountBefore.accountID, app, false);
-            if (srcAccountAfter)
-            {
-                bool earlyFailure =
-                    (code == txMISSING_OPERATION || code == txTOO_EARLY ||
-                     code == txTOO_LATE || code == txINSUFFICIENT_FEE ||
-                     code == txBAD_SEQ);
-                // verify that the sequence number changed (v10+)
-                // do not perform the check if there was a failure before
-                // or during the sequence number processing
-                if (checkSeqNum &&
-                    app.getLedgerManager().getCurrentLedgerVersion() >= 10 &&
-                    !earlyFailure)
-                {
-                    REQUIRE(srcAccountAfter->getSeqNum() ==
-                            (srcAccountBefore.seqNum + 1));
-                }
-                // on failure, no other changes should have been made
-                if (!res)
-                {
-                    auto added = applyDelta.added();
-                    REQUIRE(added.begin() == added.end());
-                    auto deleted = applyDelta.deleted();
-                    REQUIRE(deleted.begin() == deleted.end());
-                    auto modified = applyDelta.modified();
-                    if (earlyFailure ||
-                        app.getLedgerManager().getCurrentLedgerVersion() <= 9)
-                    {
-                        // no changes during an early failure
-                        REQUIRE(modified.begin() == modified.end());
-                    }
-                    else
-                    {
-                        REQUIRE(modified.begin() != modified.end());
-                        for (auto m : modified)
-                        {
-                            REQUIRE(m.key.account().accountID ==
-                                    srcAccountBefore.accountID);
-                            // could check more here if needed
-                        }
-                    }
-                }
-            }
-        }
-        applyDelta.commit();
+    }
+    else
+    {
+        res = check;
     }
 
     // validates db state
@@ -275,50 +118,18 @@ checkTransaction(TransactionFrame& txFrame, Application& app)
 }
 
 void
-applyTx(TransactionFramePtr const& tx, Application& app, bool checkSeqNum)
+applyTx(TransactionFramePtr const& tx, Application& app)
 {
-    applyCheck(tx, app, checkSeqNum);
+    applyCheck(tx, app);
     throwIf(tx->getResult());
     checkTransaction(*tx, app);
 }
-
-void
-validateTxResults(TransactionFramePtr const& tx, Application& app,
-                  ValidationResult validationResult,
-                  TransactionResult const& applyResult)
-{
-    auto shouldValidateOk = validationResult.code == txSUCCESS;
-    REQUIRE(tx->checkValid(app, 0) == shouldValidateOk);
-    REQUIRE(tx->getResult().result.code() == validationResult.code);
-    REQUIRE(tx->getResult().feeCharged == validationResult.fee);
-
-    // do not try to apply if checkValid returned false
-    if (!shouldValidateOk)
-    {
-        REQUIRE(applyResult == TransactionResult{});
-        return;
-    }
-
-    switch (applyResult.result.code())
-    {
-    case txINTERNAL_ERROR:
-    case txBAD_AUTH_EXTRA:
-    case txBAD_SEQ:
-        return;
-    default:
-        break;
-    }
-
-    auto shouldApplyOk = applyResult.result.code() == txSUCCESS;
-    auto applyOk = applyCheck(tx, app);
-    REQUIRE(tx->getResult() == applyResult);
-    REQUIRE(applyOk == shouldApplyOk);
-};
 
 TxSetResultMeta
 closeLedgerOn(Application& app, uint32 ledgerSeq, int day, int month, int year,
               std::vector<TransactionFramePtr> const& txs)
 {
+
     auto txSet = std::make_shared<TxSetFrame>(
         app.getLedgerManager().getLastClosedLedgerHeader().hash);
 
@@ -367,12 +178,6 @@ getAccount(const char* n)
     while (seed.size() < 32)
         seed += '.';
     return SecretKey::fromSeed(seed);
-}
-
-Signer
-makeSigner(SecretKey key, int weight)
-{
-    return Signer{KeyUtils::convertKey<SignerKey>(key.getPublicKey()), weight};
 }
 
 AccountFrame::pointer
@@ -734,145 +539,61 @@ applyCreatePassiveOffer(Application& app, SecretKey const& source,
                                                     : 0;
 }
 
-SetOptionsArguments
-operator|(SetOptionsArguments const& x, SetOptionsArguments const& y)
-{
-    auto result = SetOptionsArguments{};
-    result.masterWeight = y.masterWeight ? y.masterWeight : x.masterWeight;
-    result.lowThreshold = y.lowThreshold ? y.lowThreshold : x.lowThreshold;
-    result.medThreshold = y.medThreshold ? y.medThreshold : x.medThreshold;
-    result.highThreshold = y.highThreshold ? y.highThreshold : x.highThreshold;
-    result.signer = y.signer ? y.signer : x.signer;
-    result.setFlags = y.setFlags ? y.setFlags : x.setFlags;
-    result.clearFlags = y.clearFlags ? y.clearFlags : x.clearFlags;
-    result.inflationDest = y.inflationDest ? y.inflationDest : x.inflationDest;
-    result.homeDomain = y.homeDomain ? y.homeDomain : x.homeDomain;
-    return result;
-}
-
 Operation
-setOptions(SetOptionsArguments const& arguments)
+setOptions(AccountID* inflationDest, uint32_t* setFlags, uint32_t* clearFlags,
+           ThresholdSetter* thrs, Signer* signer, std::string* homeDomain)
 {
     Operation op;
     op.body.type(SET_OPTIONS);
 
     SetOptionsOp& setOp = op.body.setOptionsOp();
 
-    if (arguments.inflationDest)
+    if (inflationDest)
     {
-        setOp.inflationDest.activate() = *arguments.inflationDest;
+        setOp.inflationDest.activate() = *inflationDest;
     }
 
-    if (arguments.setFlags)
+    if (setFlags)
     {
-        setOp.setFlags.activate() = *arguments.setFlags;
+        setOp.setFlags.activate() = *setFlags;
     }
 
-    if (arguments.clearFlags)
+    if (clearFlags)
     {
-        setOp.clearFlags.activate() = *arguments.clearFlags;
+        setOp.clearFlags.activate() = *clearFlags;
     }
 
-    if (arguments.masterWeight)
+    if (thrs)
     {
-        setOp.masterWeight.activate() = *arguments.masterWeight;
-    }
-    if (arguments.lowThreshold)
-    {
-        setOp.lowThreshold.activate() = *arguments.lowThreshold;
-    }
-    if (arguments.medThreshold)
-    {
-        setOp.medThreshold.activate() = *arguments.medThreshold;
-    }
-    if (arguments.highThreshold)
-    {
-        setOp.highThreshold.activate() = *arguments.highThreshold;
-    }
-
-    if (arguments.signer)
-    {
-        setOp.signer.activate() = *arguments.signer;
+        if (thrs->masterWeight)
+        {
+            setOp.masterWeight.activate() = *thrs->masterWeight;
+        }
+        if (thrs->lowThreshold)
+        {
+            setOp.lowThreshold.activate() = *thrs->lowThreshold;
+        }
+        if (thrs->medThreshold)
+        {
+            setOp.medThreshold.activate() = *thrs->medThreshold;
+        }
+        if (thrs->highThreshold)
+        {
+            setOp.highThreshold.activate() = *thrs->highThreshold;
+        }
     }
 
-    if (arguments.homeDomain)
+    if (signer)
     {
-        setOp.homeDomain.activate() = *arguments.homeDomain;
+        setOp.signer.activate() = *signer;
+    }
+
+    if (homeDomain)
+    {
+        setOp.homeDomain.activate() = *homeDomain;
     }
 
     return op;
-}
-
-SetOptionsArguments
-setMasterWeight(int master)
-{
-    SetOptionsArguments result;
-    result.masterWeight = make_optional<int>(master);
-    return result;
-}
-
-SetOptionsArguments
-setLowThreshold(int low)
-{
-    SetOptionsArguments result;
-    result.lowThreshold = make_optional<int>(low);
-    return result;
-}
-
-SetOptionsArguments
-setMedThreshold(int med)
-{
-    SetOptionsArguments result;
-    result.medThreshold = make_optional<int>(med);
-    return result;
-}
-
-SetOptionsArguments
-setHighThreshold(int high)
-{
-    SetOptionsArguments result;
-    result.highThreshold = make_optional<int>(high);
-    return result;
-}
-
-SetOptionsArguments
-setSigner(Signer signer)
-{
-    SetOptionsArguments result;
-    result.signer = make_optional<Signer>(signer);
-    return result;
-}
-
-SetOptionsArguments
-setFlags(uint32_t setFlags)
-{
-    SetOptionsArguments result;
-    result.setFlags = make_optional<uint32_t>(setFlags);
-    return result;
-}
-
-SetOptionsArguments
-clearFlags(uint32_t clearFlags)
-{
-    SetOptionsArguments result;
-    result.clearFlags = make_optional<uint32_t>(clearFlags);
-    return result;
-}
-
-SetOptionsArguments
-setInflationDestination(AccountID inflationDest)
-{
-    SetOptionsArguments result;
-    result.inflationDest = make_optional<AccountID>(inflationDest);
-    return result;
-}
-
-SetOptionsArguments
-setHomeDomain(std::string const& homeDomain)
-{
-    SetOptionsArguments result;
-    result.homeDomain = make_optional<std::string>(homeDomain);
-    return result;
 }
 
 Operation
@@ -902,15 +623,6 @@ manageData(std::string const& name, DataValue* value)
     if (value)
         op.body.manageDataOp().dataValue.activate() = *value;
 
-    return op;
-}
-
-Operation
-bumpSequence(SequenceNumber to)
-{
-    Operation op;
-    op.body.type(BUMP_SEQUENCE);
-    op.body.bumpSequenceOp().bumpTo = to;
     return op;
 }
 

@@ -9,7 +9,6 @@
 #include "crypto/SecretKey.h"
 #include "database/Database.h"
 #include "ledger/LedgerRange.h"
-#include "util/XDROperators.h"
 #include "util/types.h"
 
 using namespace std;
@@ -17,6 +16,8 @@ using namespace soci;
 
 namespace stellar
 {
+using xdr::operator==;
+
 // note: the primary key omits assettype as assetcodes are non overlapping
 const char* TrustFrame::kSQLCreateStatement1 =
     "CREATE TABLE trustlines"

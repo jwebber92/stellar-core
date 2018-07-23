@@ -4,7 +4,6 @@
 
 #include "bucket/BucketManager.h"
 #include "catchup/CatchupWorkTests.h"
-#include "history/HistoryArchiveManager.h"
 #include "history/HistoryManager.h"
 #include "history/HistoryTestsUtils.h"
 #include "historywork/GetHistoryArchiveStateWork.h"
@@ -58,12 +57,12 @@ TEST_CASE("HistoryManager::compress", "[history]")
     }
     std::string compressed = fname + ".gz";
     auto& wm = catchupSimulation.getApp().getWorkManager();
-    auto g = wm.executeWork<GzipFileWork>(fname);
+    auto g = wm.executeWork<GzipFileWork>(true, fname);
     REQUIRE(g->getState() == Work::WORK_SUCCESS);
     REQUIRE(!fs::exists(fname));
     REQUIRE(fs::exists(compressed));
 
-    auto u = wm.executeWork<GunzipFileWork>(compressed);
+    auto u = wm.executeWork<GunzipFileWork>(true, compressed);
     REQUIRE(u->getState() == Work::WORK_SUCCESS);
     REQUIRE(fs::exists(fname));
     REQUIRE(!fs::exists(compressed));
@@ -76,20 +75,20 @@ TEST_CASE("HistoryArchiveState::get_put", "[history]")
     HistoryArchiveState has;
     has.currentLedger = 0x1234;
 
-    auto archive =
-        catchupSimulation.getApp().getHistoryArchiveManager().getHistoryArchive(
-            "test");
-    REQUIRE(archive);
+    auto i = catchupSimulation.getApp().getConfig().HISTORY.find("test");
+    REQUIRE(i != catchupSimulation.getApp().getConfig().HISTORY.end());
+    auto archive = i->second;
 
     has.resolveAllFutures();
 
     auto& wm = catchupSimulation.getApp().getWorkManager();
-    auto put = wm.executeWork<PutHistoryArchiveStateWork>(has, archive);
+    auto put = wm.executeWork<PutHistoryArchiveStateWork>(true, has, archive);
     REQUIRE(put->getState() == Work::WORK_SUCCESS);
 
     HistoryArchiveState has2;
     auto get = wm.executeWork<GetHistoryArchiveStateWork>(
-        "get-history-archive-state", has2, 0, archive);
+        true, "get-history-archive-state", has2, 0, std::chrono::seconds(0),
+        archive);
     REQUIRE(get->getState() == Work::WORK_SUCCESS);
     REQUIRE(has2.currentLedger == 0x1234);
 }
@@ -140,8 +139,7 @@ TEST_CASE("Full history catchup", "[history][historycatchup]")
     catchupSimulation.generateAndPublishInitialHistory(3);
 
     uint32_t initLedger =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
 
     std::vector<Application::pointer> apps;
 
@@ -180,10 +178,6 @@ TEST_CASE("History publish queueing", "[history][historydelay][historycatchup]")
     {
         catchupSimulation.generateRandomLedger();
     }
-    // One more ledger is needed to close as stellar-core only publishes to
-    // just-before-LCL
-    catchupSimulation.generateRandomLedger();
-
     CLOG(INFO, "History") << "publish-delay count: "
                           << hm.getPublishDelayCount();
 
@@ -194,8 +188,7 @@ TEST_CASE("History publish queueing", "[history][historydelay][historycatchup]")
     }
 
     auto initLedger =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        1;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
     auto app2 = catchupSimulation.catchupNewApplication(
         initLedger, std::numeric_limits<uint32_t>::max(), false,
         Config::TESTDB_IN_MEMORY_SQLITE,
@@ -219,7 +212,7 @@ TEST_CASE("History prefix catchup", "[history][historycatchup][prefixcatchup]")
         std::string("Catchup to prefix of published history"));
     apps.push_back(a);
     uint32_t freq = apps.back()->getHistoryManager().getCheckpointFrequency();
-    CHECK(apps.back()->getLedgerManager().getLedgerNum() == freq + 2);
+    CHECK(apps.back()->getLedgerManager().getLedgerNum() == freq + 1);
 
     // Then attempt catchup to 74, prefix of 128. Should round up to 128.
     // Should replay the 64th (since it gets externalized) and land on 129.
@@ -228,7 +221,7 @@ TEST_CASE("History prefix catchup", "[history][historycatchup][prefixcatchup]")
         Config::TESTDB_IN_MEMORY_SQLITE,
         std::string("Catchup to second prefix of published history"));
     apps.push_back(a);
-    CHECK(apps.back()->getLedgerManager().getLedgerNum() == 2 * freq + 2);
+    CHECK(apps.back()->getLedgerManager().getLedgerNum() == 2 * freq + 1);
 }
 
 TEST_CASE("Publish/catchup alternation, with stall",
@@ -245,7 +238,7 @@ TEST_CASE("Publish/catchup alternation, with stall",
 
     auto& lm = catchupSimulation.getApp().getLedgerManager();
 
-    uint32_t initLedger = lm.getLastClosedLedgerNum() - 2;
+    uint32_t initLedger = lm.getLastClosedLedgerNum();
 
     app2 = catchupSimulation.catchupNewApplication(
         initLedger, std::numeric_limits<uint32_t>::max(), false,
@@ -263,7 +256,7 @@ TEST_CASE("Publish/catchup alternation, with stall",
         // Now alternate between publishing new stuff and catching up to it.
         catchupSimulation.generateAndPublishHistory(i);
 
-        initLedger = lm.getLastClosedLedgerNum() - 2;
+        initLedger = lm.getLastClosedLedgerNum();
 
         catchupSimulation.catchupApplication(
             initLedger, std::numeric_limits<uint32_t>::max(), false, app2);
@@ -276,8 +269,8 @@ TEST_CASE("Publish/catchup alternation, with stall",
     // By now we should have had 3 + 1 + 2 + 3 = 9 publishes, and should
     // have advanced 1 ledger in to the 9th block.
     uint32_t freq = app2->getHistoryManager().getCheckpointFrequency();
-    CHECK(app2->getLedgerManager().getLedgerNum() == 9 * freq + 2);
-    CHECK(app3->getLedgerManager().getLedgerNum() == 9 * freq + 2);
+    CHECK(app2->getLedgerManager().getLedgerNum() == 9 * freq + 1);
+    CHECK(app3->getLedgerManager().getLedgerNum() == 9 * freq + 1);
 
     // Finally, publish a little more history than the last publish-point
     // but not enough to get to the _next_ publish-point:
@@ -290,7 +283,7 @@ TEST_CASE("Publish/catchup alternation, with stall",
     // by providing 30 cranks of the event loop and assuming that failure
     // to catch up within that time means 'stalled'.
 
-    initLedger = lm.getLastClosedLedgerNum() - 2;
+    initLedger = lm.getLastClosedLedgerNum();
 
     REQUIRE(!catchupSimulation.catchupApplication(
         initLedger, std::numeric_limits<uint32_t>::max(), false, app2));
@@ -318,9 +311,8 @@ TEST_CASE("Repair missing buckets via history",
     // not
     // necessarily _published_ anywhere.
     HistoryArchiveState has(
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-            1,
-        catchupSimulation.getBucketListAtLastPublish());
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum(),
+        catchupSimulation.getApp().getBucketManager().getBucketList());
     has.resolveAllFutures();
     auto state = has.toString();
 
@@ -334,7 +326,8 @@ TEST_CASE("Repair missing buckets via history",
 
     app2->start();
 
-    auto hash1 = catchupSimulation.getBucketListAtLastPublish().getHash();
+    auto hash1 =
+        catchupSimulation.getApp().getBucketManager().getBucketList().getHash();
     auto hash2 = app2->getBucketManager().getBucketList().getHash();
     CHECK(hash1 == hash2);
 }
@@ -351,9 +344,8 @@ TEST_CASE("Repair missing buckets fails", "[history][historybucketrepair]")
     // not
     // necessarily _published_ anywhere.
     HistoryArchiveState has(
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-            1,
-        catchupSimulation.getBucketListAtLastPublish());
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum(),
+        catchupSimulation.getApp().getBucketManager().getBucketList());
     has.resolveAllFutures();
     auto state = has.toString();
 
@@ -388,7 +380,7 @@ TEST_CASE("Repair missing buckets fails", "[history][historybucketrepair]")
     }
 }
 
-TEST_CASE("Publish/catchup via s3", "[!hide][s3]")
+TEST_CASE("Publish/catchup via s3", "[hide][s3]")
 {
     CatchupSimulation catchupSimulation{
         std::make_shared<S3HistoryConfigurator>()};
@@ -441,7 +433,7 @@ TEST_CASE("persist publish queue", "[history]")
     {
         VirtualClock clock;
         Application::pointer app1 = Application::create(clock, cfg, false);
-        app1->getHistoryArchiveManager().initializeHistoryArchive("test");
+        HistoryManager::initializeHistoryArchive(*app1, "test");
         for (size_t i = 0; i < 100; ++i)
             clock.crank(false);
         app1->start();
@@ -481,8 +473,7 @@ TEST_CASE("too far behind / catchup restart", "[history][catchupstall]")
 
     // Catch up successfully the first time
     auto app2 = catchupSimulation.catchupNewApplication(
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-            2,
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum(),
         std::numeric_limits<uint32_t>::max(), false,
         Config::TESTDB_IN_MEMORY_SQLITE, "app2");
 
@@ -490,14 +481,14 @@ TEST_CASE("too far behind / catchup restart", "[history][catchupstall]")
     catchupSimulation.generateAndPublishHistory(1);
 
     auto init = app2->getLedgerManager().getLastClosedLedgerNum() + 2;
-    REQUIRE(init == 67);
+    REQUIRE(init == 66);
 
     // Now start a catchup on that catchups as far as it can due to gap
     LOG(INFO) << "Starting catchup (with gap) from " << init;
     REQUIRE(catchupSimulation.catchupApplication(
         init, std::numeric_limits<uint32_t>::max(), false, app2, true,
         init + 10));
-    REQUIRE(app2->getLedgerManager().getLastClosedLedgerNum() == 76);
+    REQUIRE(app2->getLedgerManager().getLastClosedLedgerNum() == 75);
 
     app2->getWorkManager().clearChildren();
 
@@ -506,11 +497,10 @@ TEST_CASE("too far behind / catchup restart", "[history][catchupstall]")
 
     // And catchup successfully
     init =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
     REQUIRE(catchupSimulation.catchupApplication(
         init, std::numeric_limits<uint32_t>::max(), false, app2));
-    REQUIRE(app2->getLedgerManager().getLastClosedLedgerNum() == 193);
+    REQUIRE(app2->getLedgerManager().getLastClosedLedgerNum() == 192);
 }
 
 /*
@@ -529,8 +519,7 @@ TEST_CASE("Catchup recent", "[history][catchuprecent]")
     // Network has published 0x3f (63), 0x7f (127) and 0xbf (191)
     // Network is currently sitting on ledger 0xc0 (192)
     uint32_t initLedger =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
 
     // Check that isolated catchups work at a variety of boundary
     // conditions relative to the size of a checkpoint:
@@ -549,8 +538,7 @@ TEST_CASE("Catchup recent", "[history][catchuprecent]")
     // catch up properly.
     catchupSimulation.generateAndPublishHistory(2);
     initLedger =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
 
     for (auto a : apps)
     {
@@ -558,11 +546,11 @@ TEST_CASE("Catchup recent", "[history][catchuprecent]")
     }
 
     // Now push network along a _lot_ futher along see that they can all
-    // still catch up properly.
+    // still
+    // catch up properly.
     catchupSimulation.generateAndPublishHistory(25);
     initLedger =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
 
     for (auto a : apps)
     {
@@ -578,44 +566,39 @@ TEST_CASE("Catchup manual", "[history][catchupmanual]")
     CatchupSimulation catchupSimulation{};
 
     auto dbMode = Config::TESTDB_IN_MEMORY_SQLITE;
+    std::vector<Application::pointer> apps;
 
     catchupSimulation.generateAndPublishInitialHistory(6);
-    auto initLedger1 =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
-    REQUIRE(initLedger1 == 383);
+    auto initLedger =
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
+    REQUIRE(initLedger == 383);
+
+    for (auto const& test : stellar::gCatchupRangeCases)
+    {
+        auto lastClosedLedger = test.first;
+        auto configuration = test.second;
+        auto name = fmt::format("lcl = {}, to ledger = {}, count = {}",
+                                lastClosedLedger, configuration.toLedger(),
+                                configuration.count());
+        // manual catchup-recent
+        auto a = catchupSimulation.catchupNewApplication(
+            configuration.toLedger(), configuration.count(), true, dbMode,
+            name);
+        // manual catchup-complete
+        catchupSimulation.catchupApplication(
+            initLedger, std::numeric_limits<uint32_t>::max(), true, a);
+        apps.push_back(a);
+    }
 
     // Now push network along a little bit and see that they can all still
     // catch up properly.
     catchupSimulation.generateAndPublishHistory(2);
-    auto initLedger2 =
-        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum() -
-        2;
+    initLedger =
+        catchupSimulation.getApp().getLedgerManager().getLastClosedLedgerNum();
 
-    for (auto const& test : stellar::gCatchupRangeCases)
+    for (auto a : apps)
     {
-        // test only 5% of those configurations
-        if (std::rand() % 20 == 0)
-        {
-            auto lastClosedLedger = test.first;
-            auto configuration = test.second;
-            auto name = fmt::format("lcl = {}, to ledger = {}, count = {}",
-                                    lastClosedLedger, configuration.toLedger(),
-                                    configuration.count());
-
-            SECTION(name)
-            {
-                // manual catchup-recent
-                auto a = catchupSimulation.catchupNewApplication(
-                    configuration.toLedger(), configuration.count(), true,
-                    dbMode, name);
-                // manual catchup-complete to first checkpoint
-                catchupSimulation.catchupApplication(
-                    initLedger1, std::numeric_limits<uint32_t>::max(), true, a);
-                // manual catchup-complete to second checkpoint
-                catchupSimulation.catchupApplication(initLedger2, 80, false, a);
-            }
-        }
+        catchupSimulation.catchupApplication(initLedger, 80, false, a);
     }
 }
 
@@ -629,14 +612,12 @@ TEST_CASE("initialize existing history store fails", "[history]")
     {
         VirtualClock clock;
         Application::pointer app = createTestApplication(clock, cfg);
-        REQUIRE(
-            app->getHistoryArchiveManager().initializeHistoryArchive("test"));
+        REQUIRE(HistoryManager::initializeHistoryArchive(*app, "test"));
     }
 
     {
         VirtualClock clock;
         Application::pointer app = createTestApplication(clock, cfg);
-        REQUIRE(
-            !app->getHistoryArchiveManager().initializeHistoryArchive("test"));
+        REQUIRE(!HistoryManager::initializeHistoryArchive(*app, "test"));
     }
 }

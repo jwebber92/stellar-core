@@ -5,6 +5,7 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "invariant/InvariantManager.h"
+#include "util/make_unique.h"
 #include <map>
 #include <vector>
 
@@ -32,9 +33,7 @@ class InvariantManagerImpl : public InvariantManager
   public:
     InvariantManagerImpl(medida::MetricsRegistry& registry);
 
-    virtual Json::Value getJsonInfo() override;
-
-    virtual std::vector<std::string> getEnabledInvariants() const override;
+    virtual Json::Value getInformation() override;
 
     virtual void checkOnOperationApply(Operation const& operation,
                                        OperationResult const& opres,

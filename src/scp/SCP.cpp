@@ -2,21 +2,21 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "scp/SCP.h"
+#include "SCP.h"
+
+#include <algorithm>
+
 #include "crypto/Hex.h"
 #include "crypto/SHA.h"
 #include "scp/LocalNode.h"
 #include "scp/Slot.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include "xdrpp/marshal.h"
-
-#include <algorithm>
-#include <lib/json/json.h>
 
 namespace stellar
 {
+using xdr::operator==;
 
 SCP::SCP(SCPDriver& driver, NodeID const& nodeID, bool isValidator,
          SCPQuorumSet const& qSetLocal)
@@ -118,32 +118,26 @@ SCP::getSlot(uint64 slotIndex, bool create)
     return res;
 }
 
-Json::Value
-SCP::getJsonInfo(size_t limit)
+void
+SCP::dumpInfo(Json::Value& ret, size_t limit)
 {
-    Json::Value ret;
     auto it = mKnownSlots.rbegin();
     while (it != mKnownSlots.rend() && limit-- != 0)
     {
-        auto& slot = *(it->second);
-        ret[std::to_string(slot.getSlotIndex())] = slot.getJsonInfo();
+        it->second->dumpInfo(ret);
         it++;
     }
-
-    return ret;
 }
 
-Json::Value
-SCP::getJsonQuorumInfo(NodeID const& id, bool summary, uint64 index)
+void
+SCP::dumpQuorumInfo(Json::Value& ret, NodeID const& id, bool summary,
+                    uint64 index)
 {
-    Json::Value ret;
     if (index == 0)
     {
         for (auto& item : mKnownSlots)
         {
-            auto& slot = *item.second;
-            ret[std::to_string(slot.getSlotIndex())] =
-                slot.getJsonQuorumInfo(id, summary);
+            item.second->dumpQuorumInfo(ret, id, summary);
         }
     }
     else
@@ -151,10 +145,9 @@ SCP::getJsonQuorumInfo(NodeID const& id, bool summary, uint64 index)
         auto s = getSlot(index, false);
         if (s)
         {
-            ret[std::to_string(index)] = s->getJsonQuorumInfo(id, summary);
+            s->dumpQuorumInfo(ret, id, summary);
         }
     }
-    return ret;
 }
 
 bool
@@ -258,11 +251,9 @@ SCP::TriBool
 SCP::isNodeInQuorum(NodeID const& node)
 {
     TriBool res = TB_MAYBE;
-    // iterate in reverse order as the most recent slots are authoritative over
-    // older ones
-    for (auto it = mKnownSlots.rbegin(); it != mKnownSlots.rend(); it++)
+    for (auto& s : mKnownSlots)
     {
-        auto slot = it->second;
+        auto slot = s.second;
         res = slot->isNodeInQuorum(node);
         if (res == TB_TRUE || res == TB_FALSE)
         {

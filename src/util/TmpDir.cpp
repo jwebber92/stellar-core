@@ -9,6 +9,7 @@
 #include "main/Config.h"
 #include "util/Fs.h"
 #include "util/Logging.h"
+#include "util/make_unique.h"
 
 namespace stellar
 {
@@ -22,7 +23,7 @@ TmpDir::TmpDir(std::string const& prefix)
         std::string name = prefix + "-" + hex;
         if (fs::mkpath(name))
         {
-            mPath = std::make_unique<std::string>(name);
+            mPath = make_unique<std::string>(name);
             break;
         }
         if (++attempts > 100)

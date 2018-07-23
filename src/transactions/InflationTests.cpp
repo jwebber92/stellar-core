@@ -16,7 +16,6 @@
 #include "transactions/InflationOpFrame.h"
 #include "util/Logging.h"
 #include "util/Timer.h"
-#include "util/XDROperators.h"
 #include <functional>
 
 using namespace stellar;
@@ -165,6 +164,8 @@ doInflation(Application& app, int ledgerVersion, int nbAccounts,
             std::function<int64(int)> getBalance,
             std::function<int(int)> getVote, int expectedWinnerCount)
 {
+    using xdr::operator==;
+
     // simulate the expected inflation based off the current ledger state
     std::map<int, int64> balances;
 
@@ -357,10 +358,12 @@ TEST_CASE("inflation", "[tx][inflation]")
         REQUIRE(clh.feePool == 1000000299);
         REQUIRE(clh.totalCoins == 1000000000000000000);
 
-        auto setInflationDestination1 = voter1.tx(
-            {setOptions(setInflationDestination(target1.getPublicKey()))});
-        auto setInflationDestination2 = voter2.tx(
-            {setOptions(setInflationDestination(target2.getPublicKey()))});
+        auto t1Public = target1.getPublicKey();
+        auto t2Public = target2.getPublicKey();
+        auto setInflationDestination1 = voter1.tx({setOptions(
+            &t1Public, nullptr, nullptr, nullptr, nullptr, nullptr)});
+        auto setInflationDestination2 = voter2.tx({setOptions(
+            &t2Public, nullptr, nullptr, nullptr, nullptr, nullptr)});
 
         closeLedgerOn(*app, 3, 21, 7, 2014,
                       {setInflationDestination1, setInflationDestination2});

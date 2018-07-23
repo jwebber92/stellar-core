@@ -20,7 +20,6 @@
 
 #include <memory>
 #include <numeric>
-#include <regex>
 
 namespace stellar
 {
@@ -28,7 +27,7 @@ namespace stellar
 std::unique_ptr<InvariantManager>
 InvariantManager::create(Application& app)
 {
-    return std::make_unique<InvariantManagerImpl>(app.getMetrics());
+    return make_unique<InvariantManagerImpl>(app.getMetrics());
 }
 
 InvariantManagerImpl::InvariantManagerImpl(medida::MetricsRegistry& registry)
@@ -37,7 +36,7 @@ InvariantManagerImpl::InvariantManagerImpl(medida::MetricsRegistry& registry)
 }
 
 Json::Value
-InvariantManagerImpl::getJsonInfo()
+InvariantManagerImpl::getInformation()
 {
     Json::Value failures;
     for (auto const& invariant : mInvariants)
@@ -55,17 +54,6 @@ InvariantManagerImpl::getJsonInfo()
         }
     }
     return failures;
-}
-
-std::vector<std::string>
-InvariantManagerImpl::getEnabledInvariants() const
-{
-    std::vector<std::string> res;
-    for (auto const& p : mEnabled)
-    {
-        res.emplace_back(p->getName());
-    }
-    return res;
 }
 
 void
@@ -140,48 +128,12 @@ InvariantManagerImpl::registerInvariant(std::shared_ptr<Invariant> invariant)
 }
 
 void
-InvariantManagerImpl::enableInvariant(std::string const& invPattern)
+InvariantManagerImpl::enableInvariant(std::string const& name)
 {
-    if (invPattern.empty())
+    auto registryIter = mInvariants.find(name);
+    if (registryIter == mInvariants.end())
     {
-        throw std::invalid_argument("Invariant pattern must be non empty");
-    }
-
-    std::regex r;
-    try
-    {
-        r = std::regex(invPattern, std::regex::ECMAScript | std::regex::icase);
-    }
-    catch (std::regex_error& e)
-    {
-        throw std::invalid_argument(fmt::format(
-            "Invalid invariant pattern '{}': {}", invPattern, e.what()));
-    }
-
-    bool enabledSome = false;
-    for (auto const& inv : mInvariants)
-    {
-        auto const& name = inv.first;
-        if (std::regex_match(name, r, std::regex_constants::match_not_null))
-        {
-            auto iter = std::find(mEnabled.begin(), mEnabled.end(), inv.second);
-            if (iter == mEnabled.end())
-            {
-                enabledSome = true;
-                mEnabled.push_back(inv.second);
-                CLOG(INFO, "Invariant") << "Enabled invariant '" << name << "'";
-            }
-            else
-            {
-                throw std::runtime_error{"Invariant " + name +
-                                         " already enabled"};
-            }
-        }
-    }
-    if (!enabledSome)
-    {
-        std::string message = fmt::format(
-            "Invariant pattern '{}' did not match any invariants.", invPattern);
+        std::string message = "Invariant " + name + " is not registered.";
         if (mInvariants.size() > 0)
         {
             using value_type = decltype(mInvariants)::value_type;
@@ -198,6 +150,18 @@ InvariantManagerImpl::enableInvariant(std::string const& invPattern)
             message += " There are no registered invariants";
         }
         throw std::runtime_error{message};
+    }
+
+    auto iter =
+        std::find(mEnabled.begin(), mEnabled.end(), registryIter->second);
+    if (iter == mEnabled.end())
+    {
+        mEnabled.push_back(registryIter->second);
+        CLOG(INFO, "Invariant") << "Enabled invariant '" << name << "'";
+    }
+    else
+    {
+        throw std::runtime_error{"Invariant " + name + " already enabled"};
     }
 }
 

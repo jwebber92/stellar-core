@@ -4,7 +4,7 @@
 
 #include "database/DatabaseConnectionString.h"
 #include "lib/catch.hpp"
-#include <soci.h>
+#include "util/SociNoWarnings.h"
 
 using namespace stellar;
 

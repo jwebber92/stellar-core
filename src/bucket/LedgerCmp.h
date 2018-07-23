@@ -6,7 +6,6 @@
 
 #include "ledger/EntryFrame.h"
 #include "overlay/StellarXDR.h"
-#include "util/XDROperators.h"
 
 namespace stellar
 {
@@ -32,6 +31,8 @@ struct LedgerEntryIdCmp
     operator()(T const& a, U const& b) const
         -> decltype(a.type(), b.type(), bool())
     {
+        using xdr::operator<;
+
         LedgerEntryType aty = a.type();
         LedgerEntryType bty = b.type();
 

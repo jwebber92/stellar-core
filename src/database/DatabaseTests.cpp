@@ -248,7 +248,7 @@ TEST_CASE("postgres smoketest", "[db]")
     }
 }
 
-TEST_CASE("postgres performance", "[db][pgperf][!hide]")
+TEST_CASE("postgres performance", "[db][pgperf][hide]")
 {
     Config cfg(getTestConfig(0, Config::TESTDB_POSTGRESQL));
     VirtualClock clock;
@@ -272,6 +272,7 @@ TEST_CASE("postgres performance", "[db][pgperf][!hide]")
         {
             for (int64_t i = 0; i < 10; ++i)
             {
+                TIMED_SCOPE(bulkinsert, "single large-tx insert");
                 soci::transaction sqltx(session);
                 for (int64_t j = 0; j < sz; ++j)
                 {
@@ -289,6 +290,7 @@ TEST_CASE("postgres performance", "[db][pgperf][!hide]")
         soci::transaction sqltx(session);
         for (int64_t i = 0; i < 10; ++i)
         {
+            TIMED_SCOPE(timerobj, "many small-tx insert");
             for (int64_t j = 0; j < sz / div; ++j)
             {
                 soci::transaction subtx(session);
@@ -303,6 +305,7 @@ TEST_CASE("postgres performance", "[db][pgperf][!hide]")
             }
         }
         {
+            TIMED_SCOPE(timerobj, "outer commit");
             sqltx.commit();
         }
     }

@@ -9,16 +9,16 @@ addons:
   postgresql: "9.3"
   apt:
     sources:
+    - llvm-toolchain-trusty-3.5
     - llvm-toolchain-trusty-5.0
     - ubuntu-toolchain-r-test
     packages:
     - autoconf
     - automake
     - bison
-    - clang-5.0
+    - clang-3.5
     - flex
-    - gcc-5
-    - g++-5
+    - g++-4.9
     - libpq-dev
     - libpq5
     - libstdc++6
@@ -26,7 +26,6 @@ addons:
     - pkg-config
     - clang-format-5.0
     - pandoc
-    - perl
 
 script: ./travis-build.sh
 

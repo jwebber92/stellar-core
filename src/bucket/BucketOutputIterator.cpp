@@ -6,6 +6,7 @@
 #include "bucket/Bucket.h"
 #include "bucket/BucketManager.h"
 #include "crypto/Random.h"
+#include "util/make_unique.h"
 
 namespace stellar
 {
@@ -69,7 +70,7 @@ BucketOutputIterator::put(BucketEntry const& e)
     }
     else
     {
-        mBuf = std::make_unique<BucketEntry>();
+        mBuf = make_unique<BucketEntry>();
     }
 
     // In any case, replace *mBuf with e.

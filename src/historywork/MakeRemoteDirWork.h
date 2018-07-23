@@ -14,16 +14,13 @@ class HistoryArchive;
 class MakeRemoteDirWork : public RunCommandWork
 {
     std::string mDir;
-    std::shared_ptr<HistoryArchive> mArchive;
+    std::shared_ptr<HistoryArchive const> mArchive;
     void getCommand(std::string& cmdLine, std::string& outFile) override;
 
   public:
     MakeRemoteDirWork(Application& app, WorkParent& parent,
                       std::string const& dir,
-                      std::shared_ptr<HistoryArchive> archive);
+                      std::shared_ptr<HistoryArchive const> archive);
     ~MakeRemoteDirWork();
-
-    Work::State onSuccess() override;
-    void onFailureRaise() override;
 };
 }

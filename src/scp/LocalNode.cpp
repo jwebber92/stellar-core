@@ -10,7 +10,6 @@
 #include "lib/json/json.h"
 #include "scp/QuorumSetUtils.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
 #include "util/types.h"
 #include "xdrpp/marshal.h"
 #include <algorithm>
@@ -18,6 +17,9 @@
 
 namespace stellar
 {
+using xdr::operator==;
+using xdr::operator<;
+
 LocalNode::LocalNode(NodeID const& nodeID, bool isValidator,
                      SCPQuorumSet const& qSet, SCP* scp)
     : mNodeID(nodeID), mIsValidator(isValidator), mQSet(qSet), mSCP(scp)
@@ -108,7 +110,7 @@ LocalNode::getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset)
     {
         if (qsetNode == nodeID)
         {
-            bigDivide(res, UINT64_MAX, n, d, ROUND_UP);
+            bigDivide(res, UINT64_MAX, n, d, ROUND_DOWN);
             return res;
         }
     }
@@ -118,7 +120,7 @@ LocalNode::getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset)
         uint64 leafW = getNodeWeight(nodeID, q);
         if (leafW)
         {
-            bigDivide(res, leafW, n, d, ROUND_UP);
+            bigDivide(res, leafW, n, d, ROUND_DOWN);
             return res;
         }
     }
@@ -375,28 +377,30 @@ LocalNode::findClosestVBlocking(SCPQuorumSet const& qset,
     return res;
 }
 
-Json::Value
-LocalNode::toJson(SCPQuorumSet const& qSet) const
+void
+LocalNode::toJson(SCPQuorumSet const& qSet, Json::Value& value) const
 {
-    Json::Value ret;
-    ret["t"] = qSet.threshold;
-    auto& entries = ret["v"];
+    value["t"] = qSet.threshold;
+    auto& entries = value["v"];
     for (auto const& v : qSet.validators)
     {
         entries.append(mSCP->getDriver().toShortString(v));
     }
     for (auto const& s : qSet.innerSets)
     {
-        entries.append(toJson(s));
+        Json::Value iV;
+        toJson(s, iV);
+        entries.append(iV);
     }
-    return ret;
 }
 
 std::string
 LocalNode::to_string(SCPQuorumSet const& qSet) const
 {
+    Json::Value v;
+    toJson(qSet, v);
     Json::FastWriter fw;
-    return fw.write(toJson(qSet));
+    return fw.write(v);
 }
 
 NodeID const&

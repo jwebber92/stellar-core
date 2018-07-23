@@ -11,7 +11,6 @@
 #include "database/Database.h"
 #include "herder/Herder.h"
 #include "herder/TxSetFrame.h"
-#include "ledger/LedgerManager.h"
 #include "main/Application.h"
 #include "main/Config.h"
 #include "overlay/LoadManager.h"
@@ -20,7 +19,7 @@
 #include "overlay/PeerRecord.h"
 #include "overlay/StellarXDR.h"
 #include "util/Logging.h"
-#include "util/XDROperators.h"
+#include "util/SociNoWarnings.h"
 
 #include "medida/meter.h"
 #include "medida/metrics_registry.h"
@@ -28,7 +27,6 @@
 
 #include "xdrpp/marshal.h"
 
-#include <soci.h>
 #include <time.h>
 
 // LATER: need to add some way of docking peers that are misbehaving by sending
@@ -39,6 +37,8 @@ namespace stellar
 
 using namespace std;
 using namespace soci;
+
+using xdr::operator<;
 
 medida::Meter&
 Peer::getByteReadMeter(Application& app)
@@ -898,6 +898,8 @@ Peer::noteHandshakeSuccessInPeerRecord()
 void
 Peer::recvHello(Hello const& elo)
 {
+    using xdr::operator==;
+
     if (mState >= GOT_HELLO)
     {
         CLOG(ERROR, "Overlay") << "received unexpected HELLO";

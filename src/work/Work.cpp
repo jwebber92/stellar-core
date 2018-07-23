@@ -7,6 +7,7 @@
 #include "main/Application.h"
 #include "util/Logging.h"
 #include "util/Math.h"
+#include "util/make_unique.h"
 #include "work/WorkManager.h"
 #include "work/WorkParent.h"
 
@@ -205,7 +206,7 @@ Work::scheduleRetry()
 
     if (!mRetryTimer)
     {
-        mRetryTimer = std::make_unique<VirtualTimer>(mApp.getClock());
+        mRetryTimer = make_unique<VirtualTimer>(mApp.getClock());
     }
 
     std::weak_ptr<Work> weak(

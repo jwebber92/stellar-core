@@ -8,7 +8,6 @@
 #include "ledger/LedgerDelta.h"
 #include "main/Application.h"
 #include "transactions/AllowTrustOpFrame.h"
-#include "transactions/BumpSequenceOpFrame.h"
 #include "transactions/ChangeTrustOpFrame.h"
 #include "transactions/CreateAccountOpFrame.h"
 #include "transactions/CreatePassiveOfferOpFrame.h"
@@ -80,8 +79,7 @@ OperationFrame::makeHelper(Operation const& op, OperationResult& res,
         return std::make_shared<InflationOpFrame>(op, res, tx);
     case MANAGE_DATA:
         return std::make_shared<ManageDataOpFrame>(op, res, tx);
-    case BUMP_SEQUENCE:
-        return std::make_shared<BumpSequenceOpFrame>(op, res, tx);
+
     default:
         ostringstream err;
         err << "Unknown Tx type: " << op.body.type();
@@ -115,58 +113,13 @@ OperationFrame::getThresholdLevel() const
     return ThresholdLevel::MEDIUM;
 }
 
-bool OperationFrame::isVersionSupported(uint32_t) const
-{
-    return true;
-}
-
 bool
-OperationFrame::checkSignature(SignatureChecker& signatureChecker,
-                               Application& app, LedgerDelta* delta)
+OperationFrame::checkSignature(SignatureChecker& signatureChecker) const
 {
-    bool forApply = (delta != nullptr);
-    if (!loadAccount(app.getLedgerManager().getCurrentLedgerVersion(), delta,
-                     app.getDatabase()))
-    {
-        if (forApply || !mOperation.sourceAccount)
-        {
-            app.getMetrics()
-                .NewMeter({"operation", "invalid", "no-account"}, "operation")
-                .Mark();
-            mResult.code(opNO_ACCOUNT);
-            return false;
-        }
-        else
-        {
-            mSourceAccount =
-                AccountFrame::makeAuthOnlyAccount(*mOperation.sourceAccount);
-        }
-    }
-
     auto neededThreshold =
         getNeededThreshold(*mSourceAccount, getThresholdLevel());
-    if (!mParentTx.checkSignature(signatureChecker, *mSourceAccount,
-                                  neededThreshold))
-    {
-        app.getMetrics()
-            .NewMeter({"operation", "invalid", "bad-auth"}, "operation")
-            .Mark();
-        mResult.code(opBAD_AUTH);
-        return false;
-    }
-
-    if (app.getLedgerManager().getCurrentLedgerVersion() >= 10 || !forApply)
-    {
-        // safety: operations should not rely on ledger state as
-        // previous operations may change it (can even create the account)
-        //
-        // for ledger version >= 10 signature checking is done before applying
-        // phase so we reset source account as well, so it can be restored
-        // and checked later in checkValid method
-        mSourceAccount.reset();
-    }
-
-    return true;
+    return mParentTx.checkSignature(signatureChecker, *mSourceAccount,
+                                    neededThreshold);
 }
 
 AccountID const&
@@ -199,29 +152,11 @@ bool
 OperationFrame::checkValid(SignatureChecker& signatureChecker, Application& app,
                            LedgerDelta* delta)
 {
-    if (!isVersionSupported(app.getLedgerManager().getCurrentLedgerVersion()))
-    {
-        app.getMetrics()
-            .NewMeter({"operation", "invalid", "not-supported"}, "operation")
-            .Mark();
-        mResult.code(opNOT_SUPPORTED);
-        return false;
-    }
-
     bool forApply = (delta != nullptr);
-    if (!forApply || app.getLedgerManager().getCurrentLedgerVersion() < 10)
+    if (!loadAccount(app.getLedgerManager().getCurrentLedgerVersion(), delta,
+                     app.getDatabase()))
     {
-        if (!checkSignature(signatureChecker, app, delta))
-        {
-            return false;
-        }
-    }
-    else
-    {
-        // for ledger versions >= 10 we need to load account here, as for
-        // previous versions it is done in checkSignature call
-        if (!loadAccount(app.getLedgerManager().getCurrentLedgerVersion(),
-                         delta, app.getDatabase()))
+        if (forApply || !mOperation.sourceAccount)
         {
             app.getMetrics()
                 .NewMeter({"operation", "invalid", "no-account"}, "operation")
@@ -229,6 +164,27 @@ OperationFrame::checkValid(SignatureChecker& signatureChecker, Application& app,
             mResult.code(opNO_ACCOUNT);
             return false;
         }
+        else
+        {
+            mSourceAccount =
+                AccountFrame::makeAuthOnlyAccount(*mOperation.sourceAccount);
+        }
+    }
+
+    if (!checkSignature(signatureChecker))
+    {
+        app.getMetrics()
+            .NewMeter({"operation", "invalid", "bad-auth"}, "operation")
+            .Mark();
+        mResult.code(opBAD_AUTH);
+        return false;
+    }
+
+    if (!forApply)
+    {
+        // safety: operations should not rely on ledger state as
+        // previous operations may change it (can even create the account)
+        mSourceAccount.reset();
     }
 
     mResult.code(opINNER);
