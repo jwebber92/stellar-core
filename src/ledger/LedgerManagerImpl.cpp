@@ -36,6 +36,7 @@
 #include "medida/timer.h"
 #include "xdrpp/printer.h"
 #include "xdrpp/types.h"
+#include "util/Decoder.h"
 
 #include <chrono>
 #include <sstream>
@@ -901,7 +902,7 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
                     }*/
                     //oss << ",'" << (account.inflationDest ? KeyUtils::toStrKey(*account.inflationDest): "") << "'";
                     //oss << ",'" << account.homeDomain << "'";
-                    string thresholds(bn::encode_b64(account.thresholds));
+                    string thresholds(decoder::encode_b64(account.thresholds));
                     oss << ",'" << thresholds << "'";
                     oss << "," << account.flags;
                     oss << "," << ledgerData.getLedgerSeq();
