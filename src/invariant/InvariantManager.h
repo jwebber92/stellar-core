@@ -12,6 +12,7 @@ namespace stellar
 {
 
 class Application;
+class Bucket;
 class Invariant;
 class LedgerDelta;
 struct Operation;
@@ -32,7 +33,8 @@ class InvariantManager
     {
     }
 
-    virtual Json::Value getInformation() = 0;
+    virtual Json::Value getJsonInfo() = 0;
+    virtual std::vector<std::string> getEnabledInvariants() const = 0;
 
     virtual void checkOnBucketApply(std::shared_ptr<Bucket const> bucket,
                                     uint32_t ledger, uint32_t level,

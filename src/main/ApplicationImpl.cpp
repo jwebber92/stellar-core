@@ -16,6 +16,7 @@
 #include "database/Database.h"
 #include "herder/Herder.h"
 #include "herder/HerderPersistence.h"
+#include "history/HistoryArchiveManager.h"
 #include "history/HistoryManager.h"
 #include "invariant/AccountSubEntriesCountIsValid.h"
 #include "invariant/BucketListIsConsistentWithDatabase.h"
@@ -47,7 +48,6 @@
 
 #include "util/Logging.h"
 #include "util/TmpDir.h"
-#include "util/make_unique.h"
 
 #include <set>
 #include <string>
@@ -61,12 +61,12 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
     : mVirtualClock(clock)
     , mConfig(cfg)
     , mWorkerIOService(std::thread::hardware_concurrency())
-    , mWork(make_unique<asio::io_service::work>(mWorkerIOService))
+    , mWork(std::make_unique<asio::io_service::work>(mWorkerIOService))
     , mWorkerThreads()
     , mStopSignals(clock.getIOService(), SIGINT)
     , mStopping(false)
     , mStoppingTimer(*this)
-    , mMetrics(make_unique<medida::MetricsRegistry>())
+    , mMetrics(std::make_unique<medida::MetricsRegistry>())
     , mAppStateCurrent(mMetrics->NewCounter({"app", "state", "current"}))
     , mAppStateChanges(mMetrics->NewTimer({"app", "state", "changes"}))
     , mLastStateChange(clock.now())
@@ -103,25 +103,27 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
 void
 ApplicationImpl::initialize()
 {
-    mDatabase = make_unique<Database>(*this);
-    mPersistentState = make_unique<PersistentState>(*this);
+    mDatabase = std::make_unique<Database>(*this);
+    mPersistentState = std::make_unique<PersistentState>(*this);
     mTmpDirManager =
-        make_unique<TmpDirManager>(mConfig.BUCKET_DIR_PATH + "/tmp");
+        std::make_unique<TmpDirManager>(mConfig.BUCKET_DIR_PATH + "/tmp");
     mOverlayManager = createOverlayManager();
     mLedgerManager = LedgerManager::create(*this);
     mHerder = createHerder();
     mHerderPersistence = HerderPersistence::create(*this);
     mBucketManager = BucketManager::create(*this);
     mCatchupManager = CatchupManager::create(*this);
+    mHistoryArchiveManager = std::make_unique<HistoryArchiveManager>(*this);
     mHistoryManager = HistoryManager::create(*this);
     mInvariantManager = createInvariantManager();
-    mMaintainer = make_unique<Maintainer>(*this);
+    mMaintainer = std::make_unique<Maintainer>(*this);
     mProcessManager = ProcessManager::create(*this);
-    mCommandHandler = make_unique<CommandHandler>(*this);
+    mCommandHandler = std::make_unique<CommandHandler>(*this);
     mWorkManager = WorkManager::create(*this);
     mBanManager = BanManager::create(*this);
-    mStatusManager = make_unique<StatusManager>();
     mBulkWriterManager = make_unique<BulkWriterManager>();
+    mStatusManager = std::make_unique<StatusManager>();
+
     BucketListIsConsistentWithDatabase::registerInvariant(*this);
     AccountSubEntriesCountIsValid::registerInvariant(*this);
     CacheIsConsistentWithDatabase::registerInvariant(*this);
@@ -236,6 +238,7 @@ ApplicationImpl::getJsonInfo()
     info["ledger"]["version"] = lcl.header.ledgerVersion;
     info["ledger"]["baseFee"] = lcl.header.baseFee;
     info["ledger"]["baseReserve"] = lcl.header.baseReserve;
+    info["ledger"]["maxTxSetSize"] = lcl.header.maxTxSetSize;
     info["ledger"]["age"] = (int)lm.secondsSinceLastLedgerClose();
     info["peers"]["pending_count"] = getOverlayManager().getPendingPeersCount();
     info["peers"]["authenticated_count"] =
@@ -250,18 +253,23 @@ ApplicationImpl::getJsonInfo()
     }
 
     auto& herder = getHerder();
-    Json::Value q;
-    herder.dumpQuorumInfo(q, getConfig().NODE_SEED.getPublicKey(), true,
-                          herder.getCurrentLedgerSeq());
+    auto q = herder.getJsonQuorumInfo(getConfig().NODE_SEED.getPublicKey(),
+                                      true, herder.getCurrentLedgerSeq());
     if (q["slots"].size() != 0)
     {
         info["quorum"] = q["slots"];
     }
 
-    Json::Value invariantFailures = getInvariantManager().getInformation();
+    auto invariantFailures = getInvariantManager().getJsonInfo();
     if (!invariantFailures.empty())
     {
         info["invariant_failures"] = invariantFailures;
+    }
+
+    auto historyArchiveInfo = getHistoryArchiveManager().getJsonInfo();
+    if (!historyArchiveInfo.empty())
+    {
+        info["history"] = historyArchiveInfo;
     }
 
     return root;
@@ -473,11 +481,13 @@ ApplicationImpl::manualClose()
 }
 
 void
-ApplicationImpl::generateLoad(uint32_t nAccounts, uint32_t nTxs,
-                              uint32_t txRate, bool autoRate)
+ApplicationImpl::generateLoad(bool isCreate, uint32_t nAccounts,
+                              uint32_t offset, uint32_t nTxs, uint32_t txRate,
+                              uint32_t batchSize, bool autoRate)
 {
     getMetrics().NewMeter({"loadgen", "run", "start"}, "run").Mark();
-    getLoadGenerator().generateLoad(*this, nAccounts, nTxs, txRate, autoRate);
+    getLoadGenerator().generateLoad(isCreate, nAccounts, offset, nTxs, txRate,
+                                    batchSize, autoRate);
 }
 
 LoadGenerator&
@@ -485,7 +495,7 @@ ApplicationImpl::getLoadGenerator()
 {
     if (!mLoadGenerator)
     {
-        mLoadGenerator = make_unique<LoadGenerator>(getNetworkID());
+        mLoadGenerator = std::make_unique<LoadGenerator>(*this);
     }
     return *mLoadGenerator;
 }
@@ -610,6 +620,20 @@ ApplicationImpl::syncAllMetrics()
     syncOwnMetrics();
 }
 
+void
+ApplicationImpl::clearMetrics(std::string const& domain)
+{
+    MetricResetter resetter;
+    auto const& metrics = mMetrics->GetAllMetrics();
+    for (auto const& kv : metrics)
+    {
+        if (domain.empty() || kv.first.domain() == domain)
+        {
+            kv.second->Process(resetter);
+        }
+    }
+}
+
 TmpDirManager&
 ApplicationImpl::getTmpDirManager()
 {
@@ -632,6 +656,12 @@ CatchupManager&
 ApplicationImpl::getCatchupManager()
 {
     return *mCatchupManager;
+}
+
+HistoryArchiveManager&
+ApplicationImpl::getHistoryArchiveManager()
+{
+    return *mHistoryArchiveManager;
 }
 
 HistoryManager&

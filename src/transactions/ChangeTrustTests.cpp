@@ -11,7 +11,6 @@
 #include "test/TxTests.h"
 #include "test/test.h"
 #include "util/Logging.h"
-#include "util/make_unique.h"
 
 using namespace stellar;
 using namespace stellar::txtest;
@@ -76,6 +75,7 @@ TEST_CASE("change trust", "[tx][changetrust]")
         }
         SECTION("edit existing")
         {
+            closeLedgerOn(*app, 2, 1, 1, 2016);
             for_all_versions(*app, [&] {
                 root.changeTrust(idr, 100);
                 // Merge gateway back into root (the trustline still exists)
@@ -155,6 +155,20 @@ TEST_CASE("change trust", "[tx][changetrust]")
             REQUIRE_THROWS_AS(gateway.changeTrust(idr, 0),
                               ex_CHANGE_TRUST_SELF_NOT_ALLOWED);
             validateTrustLineIsConst();
+        });
+    }
+
+    SECTION("trustline on native asset")
+    {
+        const auto nativeAsset = makeNativeAsset();
+        for_versions_to(9, *app, [&] {
+            REQUIRE_THROWS_AS(gateway.changeTrust(nativeAsset, INT64_MAX - 1),
+                              ex_txINTERNAL_ERROR);
+        });
+
+        for_versions_from(10, *app, [&] {
+            REQUIRE_THROWS_AS(gateway.changeTrust(nativeAsset, INT64_MAX - 1),
+                              ex_CHANGE_TRUST_MALFORMED);
         });
     }
 }

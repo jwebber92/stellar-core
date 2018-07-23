@@ -9,12 +9,12 @@
 #include "crypto/SHA.h"
 #include "database/Database.h"
 #include "database/DatabaseUtils.h"
+#include "util/Decoder.h"
 #include "util/Logging.h"
 #include "util/XDRStream.h"
 #include "util/format.h"
 #include "util/types.h"
 #include "xdrpp/marshal.h"
-#include <util/basen.h>
 
 namespace stellar
 {
@@ -62,9 +62,15 @@ LedgerHeaderFrame::getHash() const
 }
 
 SequenceNumber
+LedgerHeaderFrame::getStartingSequenceNumber(uint32 ledgerSeq)
+{
+    return static_cast<SequenceNumber>(ledgerSeq) << 32;
+}
+
+SequenceNumber
 LedgerHeaderFrame::getStartingSequenceNumber() const
 {
-    return static_cast<uint64_t>(mHeader.ledgerSeq) << 32;
+    return getStartingSequenceNumber(mHeader.ledgerSeq);
 }
 
 uint64_t
@@ -96,7 +102,7 @@ LedgerHeaderFrame::storeInsert(LedgerManager& ledgerManager) const
     auto headerBytes(xdr::xdr_to_opaque(mHeader));
 
     std::string headerEncoded;
-    headerEncoded = bn::encode_b64(headerBytes);
+    headerEncoded = decoder::encode_b64(headerBytes);
 
     auto& db = ledgerManager.getDatabase();
 
@@ -129,7 +135,7 @@ LedgerHeaderFrame::decodeFromData(std::string const& data)
 {
     LedgerHeader lh;
     std::vector<uint8_t> decoded;
-    bn::decode_b64(data, decoded);
+    decoder::decode_b64(data, decoded);
 
     xdr::xdr_get g(&decoded.front(), &decoded.back() + 1);
     xdr::xdr_argpack_archive(g, lh);

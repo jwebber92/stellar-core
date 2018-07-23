@@ -11,7 +11,6 @@
 #include "lib/catch.hpp"
 #include "test/test.h"
 #include "util/Logging.h"
-#include "util/basen.h"
 #include <autocheck/autocheck.hpp>
 #include <map>
 #include <regex>
@@ -34,6 +33,10 @@ TEST_CASE("random", "[crypto]")
     LOG(DEBUG) << "k1: " << k1.getStrKeySeed().value;
     LOG(DEBUG) << "k2: " << k2.getStrKeySeed().value;
     CHECK(k1.getStrKeySeed() != k2.getStrKeySeed());
+
+    SecretKey k1b = SecretKey::fromStrKeySeed(k1.getStrKeySeed().value);
+    REQUIRE(k1 == k1b);
+    REQUIRE(k1.getPublicKey() == k1b.getPublicKey());
 }
 
 TEST_CASE("hex tests", "[crypto]")
@@ -180,7 +183,7 @@ struct SignVerifyTestcase
     }
 };
 
-TEST_CASE("sign and verify benchmarking", "[crypto-bench][bench][hide]")
+TEST_CASE("sign and verify benchmarking", "[crypto-bench][bench][!hide]")
 {
     size_t n = 100000;
     std::vector<SignVerifyTestcase> cases;
@@ -191,7 +194,6 @@ TEST_CASE("sign and verify benchmarking", "[crypto-bench][bench][hide]")
 
     LOG(INFO) << "Benchmarking " << n << " signatures and verifications";
     {
-        TIMED_SCOPE(timerBlkObj, "signing");
         for (auto& c : cases)
         {
             c.sign();
@@ -199,7 +201,6 @@ TEST_CASE("sign and verify benchmarking", "[crypto-bench][bench][hide]")
     }
 
     {
-        TIMED_SCOPE(timerBlkObj, "verifying");
         for (auto& c : cases)
         {
             c.verify();
@@ -323,22 +324,4 @@ TEST_CASE("StrKey tests", "[crypto]")
         (((double)n_detected) / ((double)n_corrupted)) * 100.0;
     LOG(INFO) << "CRC16 error-detection rate " << detectionRate;
     REQUIRE(detectionRate > 98.0);
-}
-
-TEST_CASE("base64 tests", "[crypto]")
-{
-    autocheck::generator<std::vector<uint8_t>> input;
-    // check round trip
-    for (int s = 0; s < 100; s++)
-    {
-        std::vector<uint8_t> in(input(s));
-
-        std::string encoded = bn::encode_b64(in);
-
-        std::vector<uint8_t> decoded;
-
-        bn::decode_b64(encoded, decoded);
-
-        REQUIRE(in == decoded);
-    }
 }
