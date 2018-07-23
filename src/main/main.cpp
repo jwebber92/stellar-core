@@ -12,6 +12,7 @@
 #include "crypto/KeyUtils.h"
 #include "crypto/SecretKey.h"
 #include "database/Database.h"
+#include "history/HistoryArchiveManager.h"
 #include "history/HistoryManager.h"
 #include "historywork/GetHistoryArchiveStateWork.h"
 #include "ledger/LedgerManager.h"
@@ -122,15 +123,13 @@ usage(int err = 1)
           "      --base64             Use base64 for --printtxn and --signtxn\n"
           "      --catchup-at SEQ     Do a catchup at ledger SEQ, then quit\n"
           "                           Use current as SEQ to catchup to "
-          "'current'"
-          "history checkpoint\n"
+          "'current' history checkpoint\n"
           "      --catchup-complete   Do a complete catchup, then quit\n"
           "      --catchup-recent NUM Do a recent catchup for NUM ledgers, "
           "then quit\n"
           "      --catchup-to SEQ     Do a catchup to ledger SEQ, then quit\n"
           "                           Use current as SEQ to catchup to "
-          "'current'"
-          "history checkpoint\n"
+          "'current' history checkpoint\n"
           "      --c                  Send a command to local stellar-core. "
           "try "
           "'--c help' for more information\n"
@@ -288,7 +287,7 @@ catchup(Application::pointer app, uint32_t to, uint32_t count,
 
     try
     {
-        app->getLedgerManager().startCatchUp({to, count}, true);
+        app->getLedgerManager().startCatchup({to, count}, true);
     }
     catch (std::invalid_argument const&)
     {
@@ -312,25 +311,50 @@ catchup(Application::pointer app, uint32_t to, uint32_t count,
         {
         case LedgerManager::LM_BOOTING_STATE:
         {
-            LOG(INFO) << "*";
-            LOG(INFO) << "* Catchup failed.";
-            LOG(INFO) << "*";
             done = true;
             break;
         }
         case LedgerManager::LM_SYNCED_STATE:
         {
-            LOG(INFO) << "*";
-            LOG(INFO) << "* Catchup finished.";
-            LOG(INFO) << "*";
-            done = true;
-            synced = true;
             break;
         }
         case LedgerManager::LM_CATCHING_UP_STATE:
+        {
+            switch (app->getLedgerManager().getCatchupState())
+            {
+            case LedgerManager::CatchupState::WAITING_FOR_CLOSING_LEDGER:
+            {
+                done = true;
+                synced = true;
+                break;
+            }
+            case LedgerManager::CatchupState::NONE:
+            {
+                done = true;
+                break;
+            }
+            default:
+            {
+                break;
+            }
+            }
             break;
         }
+        case LedgerManager::LM_NUM_STATE:
+            abort();
+        }
     }
+
+    LOG(INFO) << "*";
+    if (synced)
+    {
+        LOG(INFO) << "* Catchup finished.";
+    }
+    else
+    {
+        LOG(INFO) << "* Catchup failed.";
+    }
+    LOG(INFO) << "*";
 
     catchupInfo = app->getJsonInfo();
     return synced ? 0 : 3;
@@ -402,7 +426,7 @@ reportLastHistoryCheckpoint(Config const& cfg, std::string const& outputFile)
     auto& wm = app->getWorkManager();
     auto getHistoryArchiveStateWork =
         wm.executeWork<GetHistoryArchiveStateWork>(
-            true, "get-history-archive-state-work", state);
+            "get-history-archive-state-work", state);
 
     auto ok = getHistoryArchiveStateWork->getState() == Work::WORK_SUCCESS;
     if (ok)
@@ -604,7 +628,7 @@ initializeHistories(Config& cfg, vector<string> newHistories)
 
     for (auto const& arch : newHistories)
     {
-        if (!HistoryManager::initializeHistoryArchive(*app, arch))
+        if (!app->getHistoryArchiveManager().initializeHistoryArchive(arch))
             return 1;
     }
     return 0;
@@ -627,7 +651,7 @@ startApp(string cfgFile, Config& cfg)
         }
         else
         {
-            if (!HistoryManager::checkSensibleConfig(cfg))
+            if (!app->getHistoryArchiveManager().checkSensibleConfig())
             {
                 return 1;
             }

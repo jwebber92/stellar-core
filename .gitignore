@@ -23,6 +23,7 @@
 # text editors
 *~
 *.swp
+**/.vscode/*
 
 *.xml
 *.iml

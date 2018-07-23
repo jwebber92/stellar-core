@@ -12,7 +12,6 @@
 #include "test/test.h"
 #include "util/Logging.h"
 #include "util/Timer.h"
-#include "util/make_unique.h"
 #include "xdrpp/marshal.h"
 
 #include "main/Config.h"
@@ -26,6 +25,7 @@ TEST_CASE("genesisledger", "[ledger]")
 {
     VirtualClock clock{};
     auto cfg = getTestConfig(0);
+    cfg.USE_CONFIG_FOR_GENESIS = false;
     auto app = Application::create<ApplicationImpl>(clock, cfg);
     app->start();
 

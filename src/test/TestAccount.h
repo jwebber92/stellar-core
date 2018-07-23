@@ -17,7 +17,7 @@ class Application;
 
 namespace txtest
 {
-struct ThresholdSetter;
+struct SetOptionsArguments;
 }
 
 class TestAccount
@@ -48,11 +48,11 @@ class TestAccount
     TrustLineEntry loadTrustLine(Asset const& asset) const;
     bool hasTrustLine(Asset const& asset) const;
 
-    void setOptions(AccountID* inflationDest, uint32_t* setFlags,
-                    uint32_t* clearFlags, txtest::ThresholdSetter* thrs,
-                    Signer* signer, std::string* homeDomain);
+    void setOptions(txtest::SetOptionsArguments const& arguments);
 
     void manageData(std::string const& name, DataValue* value);
+
+    void bumpSequence(SequenceNumber to);
 
     OfferEntry loadOffer(uint64_t offerID) const;
     bool hasOffer(uint64_t offerID) const;
@@ -113,9 +113,17 @@ class TestAccount
         updateSequenceNumber();
         return ++mSn;
     }
-    SequenceNumber loadSequenceNumber() const;
+    SequenceNumber loadSequenceNumber();
+
+    std::string
+    getAccountId()
+    {
+        return mAccountID;
+    }
 
     int64_t getBalance() const;
+
+    bool exists() const;
 
   private:
     Application& mApp;
