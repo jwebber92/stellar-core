@@ -7,6 +7,7 @@
 #include "main/Config.h"
 #include "scp/SCP.h"
 #include "simulation/Simulation.h"
+#include "simulation/Topologies.h"
 #include "test/TestAccount.h"
 #include "test/TestUtils.h"
 #include "test/test.h"
@@ -18,7 +19,6 @@
 #include "lib/catch.hpp"
 #include "main/CommandHandler.h"
 #include "overlay/OverlayManager.h"
-#include "simulation/Simulation.h"
 #include "test/TxTests.h"
 
 #include "xdrpp/marshal.h"
@@ -49,48 +49,118 @@ TEST_CASE("standalone", "[herder]")
     auto root = TestAccount::createRoot(*app);
     auto a1 = TestAccount{*app, getAccount("A")};
     auto b1 = TestAccount{*app, getAccount("B")};
+    auto c1 = TestAccount{*app, getAccount("C")};
 
-    const int64_t paymentAmount = app->getLedgerManager().getMinBalance(0);
+    auto txfee = app->getLedgerManager().getTxFee();
+    const int64_t minBalance = app->getLedgerManager().getMinBalance(0);
+    const int64_t paymentAmount = 100;
+    const int64_t startingBalance = minBalance + (paymentAmount + txfee) * 3;
 
     SECTION("basic ledger close on valid txs")
     {
-        bool stop = false;
         VirtualTimer setupTimer(*app);
-        VirtualTimer checkTimer(*app);
 
-        auto check = [&](asio::error_code const& error) {
-            stop = true;
+        auto feedTx = [&](TransactionFramePtr& tx) {
+            REQUIRE(app->getHerder().recvTransaction(tx) ==
+                    Herder::TX_STATUS_PENDING);
+        };
 
-            REQUIRE(app->getLedgerManager().getLastClosedLedgerNum() > 2);
+        auto waitForExternalize = [&]() {
+            VirtualTimer checkTimer(*app);
+            bool stop = false;
+            auto prev = app->getLedgerManager().getLastClosedLedgerNum();
 
-            AccountFrame::pointer a1Account, b1Account;
-            a1Account = loadAccount(a1.getPublicKey(), *app);
-            b1Account = loadAccount(b1.getPublicKey(), *app);
-            REQUIRE(a1Account->getBalance() == paymentAmount);
-            REQUIRE(b1Account->getBalance() == paymentAmount);
+            auto check = [&](asio::error_code const& error) {
+                REQUIRE(app->getLedgerManager().getLastClosedLedgerNum() >
+                        prev);
+                stop = true;
+            };
+
+            checkTimer.expires_from_now(Herder::EXP_LEDGER_TIMESPAN_SECONDS +
+                                        std::chrono::seconds(1));
+            checkTimer.async_wait(check);
+            while (!stop)
+            {
+                app->getClock().crank(true);
+            }
         };
 
         auto setup = [&](asio::error_code const& error) {
             // create accounts
-            auto txFrameA1 = root.tx({createAccount(a1, paymentAmount)});
-            auto txFrameA2 = root.tx({createAccount(b1, paymentAmount)});
+            auto txFrameA = root.tx({createAccount(a1, startingBalance)});
+            auto txFrameB = root.tx({createAccount(b1, startingBalance)});
+            auto txFrameC = root.tx({createAccount(c1, startingBalance)});
 
-            REQUIRE(app->getHerder().recvTransaction(txFrameA1) ==
-                    Herder::TX_STATUS_PENDING);
-            REQUIRE(app->getHerder().recvTransaction(txFrameA2) ==
-                    Herder::TX_STATUS_PENDING);
+            feedTx(txFrameA);
+            feedTx(txFrameB);
+            feedTx(txFrameC);
         };
 
         setupTimer.expires_from_now(std::chrono::seconds(0));
         setupTimer.async_wait(setup);
 
-        checkTimer.expires_from_now(Herder::EXP_LEDGER_TIMESPAN_SECONDS +
-                                    std::chrono::seconds(1));
-        checkTimer.async_wait(check);
+        waitForExternalize();
+        auto a1OldSeqNum = a1.getLastSequenceNumber();
 
-        while (!stop)
+        REQUIRE(a1.getBalance() == startingBalance);
+        REQUIRE(b1.getBalance() == startingBalance);
+        REQUIRE(c1.getBalance() == startingBalance);
+
+        SECTION("txset with valid txs - but failing later")
         {
-            app->getClock().crank(true);
+            std::vector<TransactionFramePtr> txAs, txBs, txCs;
+            txAs.emplace_back(a1.tx({payment(root, paymentAmount)}));
+            txAs.emplace_back(a1.tx({payment(root, paymentAmount)}));
+            txAs.emplace_back(a1.tx({payment(root, paymentAmount)}));
+
+            txBs.emplace_back(b1.tx({payment(root, paymentAmount)}));
+            txBs.emplace_back(b1.tx({accountMerge(root)}));
+            txBs.emplace_back(b1.tx({payment(a1, paymentAmount)}));
+
+            auto expectedC1Seq = c1.getLastSequenceNumber() + 10;
+            txCs.emplace_back(c1.tx({payment(root, paymentAmount)}));
+            txCs.emplace_back(c1.tx({bumpSequence(expectedC1Seq)}));
+            txCs.emplace_back(c1.tx({payment(root, paymentAmount)}));
+
+            for_all_versions(*app, [&]() {
+                for (auto a : txAs)
+                {
+                    feedTx(a);
+                }
+                for (auto b : txBs)
+                {
+                    feedTx(b);
+                }
+
+                bool hasC =
+                    app->getLedgerManager().getCurrentLedgerVersion() >= 10;
+                if (hasC)
+                {
+                    for (auto c : txCs)
+                    {
+                        feedTx(c);
+                    }
+                }
+
+                waitForExternalize();
+
+                // all of a1's transactions went through
+                // b1's last transaction failed due to account non existant
+                int64 expectedBalance =
+                    startingBalance - 3 * paymentAmount - 3 * txfee;
+                REQUIRE(a1.getBalance() == expectedBalance);
+                REQUIRE(a1.loadSequenceNumber() == a1OldSeqNum + 3);
+                REQUIRE(!b1.exists());
+
+                if (hasC)
+                {
+                    // c1's last transaction failed due to wrong sequence number
+                    int64 expectedCBalance =
+                        startingBalance - paymentAmount - 3 * txfee;
+                    REQUIRE(c1.getBalance() == expectedCBalance);
+                    REQUIRE(c1.loadSequenceNumber() == expectedC1Seq);
+                }
+            });
         }
 
         SECTION("Queue processing test")
@@ -943,4 +1013,118 @@ TEST_CASE("quick restart", "[herder][quickRestart]")
     }
 
     simulation->stopAllNodes();
+}
+
+TEST_CASE("In quorum filtering", "[herder]")
+{
+    auto mode = Simulation::OVER_LOOPBACK;
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+
+    auto sim = Topologies::core(4, 0.75, mode, networkID, [](int i) {
+        return getTestConfig(i, Config::TESTDB_ON_DISK_SQLITE);
+    });
+
+    sim->startAllNodes();
+
+    // first, close ledgers with a simple topology Core0..Core3
+    sim->crankUntil([&]() { return sim->haveAllExternalized(2, 1); },
+                    std::chrono::seconds(1), false);
+
+    // add a few extra validators, only connected to node 0
+    // E_0 [3: Core0..Core3]
+    // E_1 [3: Core0..Core3]
+    // E_2 [3: Core0..Core3]
+    // E_3 [3: Core0..Core3 E_1]
+
+    auto nodeIDs = sim->getNodeIDs();
+    auto node0 = sim->getNode(nodeIDs[0]);
+    auto qSetBase = node0->getConfig().QUORUM_SET;
+    std::vector<SecretKey> extraK;
+    std::vector<SCPQuorumSet> qSetK;
+    for (int i = 0; i < 4; i++)
+    {
+        extraK.emplace_back(
+            SecretKey::fromSeed(sha256("E_" + std::to_string(i))));
+        qSetK.emplace_back(qSetBase);
+        if (i == 3)
+        {
+            qSetK[i].validators.emplace_back(extraK[1].getPublicKey());
+        }
+        sim->addNode(extraK[i], qSetK[i]);
+        sim->addConnection(extraK[i].getPublicKey(), nodeIDs[0]);
+    }
+
+    // as they are not in quorum -> their messages are not forwarded to other
+    // core nodes but they still externalize
+
+    sim->crankUntil([&]() { return sim->haveAllExternalized(3, 1); },
+                    std::chrono::seconds(20), false);
+
+    // process scp messages for each core node
+    auto checkCoreNodes =
+        [&](std::function<void(std::vector<SCPEnvelope> const&)> proc) {
+            for (auto const& k : qSetBase.validators)
+            {
+                auto c = sim->getNode(k);
+                HerderImpl& herder = *static_cast<HerderImpl*>(&c->getHerder());
+
+                auto state = herder.getSCP().getCurrentState(
+                    c->getLedgerManager().getLedgerNum() - 1);
+                proc(state);
+            }
+        };
+
+    // none of the messages from the extra nodes should be present
+    checkCoreNodes([&](std::vector<SCPEnvelope> const& envs) {
+        for (auto const& e : envs)
+        {
+            bool r = std::find_if(
+                         extraK.begin(), extraK.end(), [&](SecretKey const& s) {
+                             return e.statement.nodeID == s.getPublicKey();
+                         }) != extraK.end();
+            REQUIRE(!r);
+        }
+    });
+
+    // then, change the quorum set of node Core3 to also include "E_2" and "E_3"
+    // E_1 .. E_3 are now part of the overall quorum
+    // E_0 is still not
+
+    auto node3Config = sim->getNode(nodeIDs[3])->getConfig();
+    sim->removeNode(node3Config.NODE_SEED.getPublicKey());
+    sim->crankUntil([&]() { return sim->haveAllExternalized(4, 1); },
+                    std::chrono::seconds(20), false);
+
+    node3Config.QUORUM_SET.validators.emplace_back(extraK[2].getPublicKey());
+    node3Config.QUORUM_SET.validators.emplace_back(extraK[3].getPublicKey());
+
+    sim->addNode(node3Config.NODE_SEED, node3Config.QUORUM_SET, &node3Config);
+
+    // connect it back to the core nodes
+    for (int i = 0; i < 3; i++)
+    {
+        sim->addConnection(nodeIDs[3], nodeIDs[i]);
+    }
+
+    sim->crankUntil([&]() { return sim->haveAllExternalized(6, 3); },
+                    std::chrono::seconds(20), true);
+
+    checkCoreNodes([&](std::vector<SCPEnvelope> const& envs) {
+        // messages for E1..E3 are present, E0 is still filtered
+        std::vector<bool> found;
+        found.resize(extraK.size(), false);
+        for (auto const& e : envs)
+        {
+            for (int i = 0; i <= 3; i++)
+            {
+                found[i] = found[i] ||
+                           (e.statement.nodeID == extraK[i].getPublicKey());
+            }
+        }
+        int actual =
+            static_cast<int>(std::count(++found.begin(), found.end(), true));
+        int expected = static_cast<int>(extraK.size() - 1);
+        REQUIRE(actual == expected);
+        REQUIRE(!found[0]);
+    });
 }

@@ -58,7 +58,18 @@ forcescp doesn't change the requirements for quorum so although this node will e
   network to sign for.  For example, the production stellar network is
   "`Public Global Stellar Network ; September 2015`" while the test
   network is "`Test SDF Network ; September 2015`".
-* **--test**: Run all the unit tests. For [further info](https://github.com/philsquared/Catch/blob/master/docs/command-line.md) on possible options for test. For example this will run just the "Herder" tests and stop after the first failure: `stellar-core --test -a [Herder]` 
+* **--test**: Run all the unit tests.
+  * Suboptions specific to stellar-core:
+      * `--all-versions` : run with all possible protocol versions
+      * `--version <N>` : run tests for protocol version N, can be specified
+      multiple times (default latest)
+      * `--base-instance <N>` : run tests with instance numbers offset by N,
+      used to run tests in parallel
+  * For [further info](https://github.com/philsquared/Catch/blob/master/docs/command-line.md) on
+  possible options for test.
+  * For example this will run just the tests tagged with `[tx]` using protocol
+  versions 9 and 10 and stop after the first failure:
+  `stellar-core --test -a --version 9 --version 10 "[tx]"`
 * **--version**: Print version info and then exit.
 
 
@@ -95,7 +106,7 @@ command line option (see above). Most commands return their results in JSON form
 
 * **ll**  
   `/ll?level=L[&partition=P]`<br>
-  Adjust the log level for partition P (or all if no partition is specified).
+  Adjust the log level for partition P where P is one of Bucket, Database, Fs, Herder, History, Ledger, Overlay, Process, SCP, Tx (or all if no partition is specified).
   Level is one of FATAL, ERROR, WARNING, INFO, DEBUG, VERBOSE, TRACE
 
 * **maintenance**
@@ -106,6 +117,10 @@ command line option (see above). Most commands return their results in JSON form
 * **metrics**
  Returns a snapshot of the metrics registry (for monitoring and
 debugging purpose).
+
+* **clearmetrics**
+ `/clearmetrics?[domain=DOMAIN]`<br>
+  Clear metrics for a specified domain. If no domain specified, clear all metrics (for testing purposes).
 
 * **peers**
   Returns the list of known peers in JSON format.
@@ -130,7 +145,7 @@ debugging purpose).
  gets the cursor identified by `ID`. If ID is not defined then all cursors will be returned.
 
 * **scp**
-  `/scp?[limit=n]
+  `/scp?[limit=n]`<br>
   Returns a JSON object with the internal state of the SCP engine for the last n (default 2) ledgers.
 
 * **tx**
@@ -163,13 +178,18 @@ debugging purpose).
         transactions are ordered by transaction fee(lower fee transactions
          are held for later).<br>
     * protocolversion (uint32) defines the protocol version to upgrade to.
-         When specified it must match the protocol version supported by the
-        node<br>
+         When specified it must match one of the protocol versions supported
+         by the node and should be greater than ledgerVersion from the
+         current ledger<br>
 
 ### The following HTTP commands are exposed on test instances
 * **generateload**
-  `/generateload[?accounts=N&txs=M&txrate=(R|auto)]`<br>
+  `/generateload[?accounts=N&&offset=K&txs=M&txrate=(R|auto)&batchsize=L]`<br>
   Artificially generate load for testing; must be used with `ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING` set to true.
+  Depending on the mode, either creates new accounts or generates payments on
+  accounts specified (where number of accounts can be offset).
+  Additionally, allows batching up to 100 account creations per transaction
+  via 'batchsize'.
 
 * **manualclose**
   If MANUAL_CLOSE is set to true in the .cfg file. This will cause the current ledger to close.
