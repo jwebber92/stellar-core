@@ -699,7 +699,7 @@ TransactionFrame::storeTransaction(Application& app,
 
     string txIDString(binToHex(getContentsHash()));
 
-    TxHistoryRow row{txIDString, ledgerManager.getCurrentLedgerHeader().ledgerSeq, txindex, txBody, meta};
+    TxHistoryRow row{txIDString, ledgerManager.getCurrentLedgerHeader().ledgerSeq, txindex, txBody, txResult, meta};
     app.getBulkWriterManager().txHistory.rows.emplace_back(row);
 
 }
@@ -854,8 +854,7 @@ TransactionFrame::copyTransactionsToStream(Hash const& networkID, Database& db,
 
     while (st.got_data())
     {
-        if (curLedgerSeq != lastLedgerSeq)
-        {
+        if (curLedgerSeq != lastLedgerSeq) {
             saveTransactionHelper(db, sess, lastLedgerSeq, txSet, results,
                                   txOut, txResultOut);
             // reset state

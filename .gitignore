@@ -24,6 +24,7 @@
 *~
 *.swp
 **/.vscode/*
+.idea/*
 
 .libs
 .deps
